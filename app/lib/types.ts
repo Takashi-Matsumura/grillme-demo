@@ -16,5 +16,21 @@ export type ProjectMeta = {
 
 export type PhaseConversation = {
   messages: Message[];
+  /** Optional for backwards compat with pre-history-feature data. */
+  createdAt?: string;
+  updatedAt: string;
+};
+
+export type SessionMeta = {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+};
+
+export type ArchivedSession = {
+  id: string;
+  messages: Message[];
+  createdAt: string;
   updatedAt: string;
 };
