@@ -1,8 +1,29 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import {
+  type Message,
+  type Phase,
+  PHASES,
+  type ProjectMeta,
+} from "@/app/lib/types";
+
+const PHASE_LABELS: Record<Phase, string> = {
+  "b-pre": "B-pre 準備",
+  c: "C 伴走",
+  "b-post": "B-post 整理",
+};
+
+const PHASE_HINTS: Record<Phase, string> = {
+  "b-pre":
+    "例: 「来週、人事課長に給与計算業務のヒアリングをします。準備を手伝ってください」",
+  c:
+    "例: 「今ミーティング中です。ここまでに次のことが分かりました：…。次に何を聞くべきでしょうか？」",
+  "b-post":
+    "例: 「ヒアリングが終わりました。以下のメモから業務文書（業務分掌 + フロー図）を作成してください：…」",
+};
 
 const mdComponents: Components = {
   h1: (props) => <h1 className="mt-4 mb-2 text-base font-bold" {...props} />,
@@ -160,16 +181,14 @@ function MermaidDiagram({
   );
 }
 
-type Message = {
-  role: "user" | "assistant";
-  content: string;
-  reasoning?: string;
-};
-
 export default function Home() {
+  const [projects, setProjects] = useState<ProjectMeta[]>([]);
+  const [currentSlug, setCurrentSlug] = useState<string | null>(null);
+  const [currentPhase, setCurrentPhase] = useState<Phase>("b-pre");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [loadingPhase, setLoadingPhase] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -177,9 +196,110 @@ export default function Home() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const refreshProjects = useCallback(async (): Promise<ProjectMeta[]> => {
+    const res = await fetch("/api/projects");
+    if (!res.ok) throw new Error("プロジェクト一覧の取得に失敗");
+    const data = (await res.json()) as { projects: ProjectMeta[] };
+    setProjects(data.projects);
+    return data.projects;
+  }, []);
+
+  // Mount: load projects and auto-select most recent.
+  useEffect(() => {
+    refreshProjects()
+      .then((list) => {
+        if (list.length > 0) setCurrentSlug(list[0].slug);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, [refreshProjects]);
+
+  // When (slug, phase) changes, load that phase's conversation.
+  useEffect(() => {
+    if (!currentSlug) {
+      setMessages([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingPhase(true);
+    fetch(`/api/projects/${currentSlug}/${currentPhase}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`load failed: ${res.status}`);
+        const data = (await res.json()) as {
+          conversation: { messages: Message[] };
+        };
+        if (!cancelled) setMessages(data.conversation.messages);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e));
+          setMessages([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPhase(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSlug, currentPhase]);
+
+  async function persistMessages(slug: string, phase: Phase, msgs: Message[]) {
+    try {
+      await fetch(`/api/projects/${slug}/${phase}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: msgs }),
+      });
+    } catch {
+      // surface to UI but don't crash
+      setError("会話の保存に失敗しました（ローカル表示は維持）");
+    }
+  }
+
+  async function handleCreateProject() {
+    const name = window.prompt("業務名を入力してください（例: 月次給与計算）");
+    if (!name || !name.trim()) return;
+    try {
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error ?? `create failed: ${res.status}`);
+      }
+      const data = (await res.json()) as { project: ProjectMeta };
+      await refreshProjects();
+      setCurrentSlug(data.project.slug);
+      setCurrentPhase("b-pre");
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function handleDeleteProject() {
+    if (!currentSlug || streaming) return;
+    const target = projects.find((p) => p.slug === currentSlug);
+    if (!target) return;
+    if (!window.confirm(`プロジェクト「${target.name}」を完全に削除しますか？`)) {
+      return;
+    }
+    try {
+      await fetch(`/api/projects/${currentSlug}`, { method: "DELETE" });
+      const list = await refreshProjects();
+      setCurrentSlug(list.length > 0 ? list[0].slug : null);
+      setCurrentPhase("b-pre");
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function send() {
     const trimmed = input.trim();
-    if (!trimmed || streaming) return;
+    if (!trimmed || streaming || !currentSlug) return;
     setError(null);
 
     const userMsg: Message = { role: "user", content: trimmed };
@@ -188,11 +308,17 @@ export default function Home() {
     setInput("");
     setStreaming(true);
 
+    let finalMessages: Message[] = next;
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next }),
+        body: JSON.stringify({
+          messages: next,
+          projectSlug: currentSlug,
+          phase: currentPhase,
+        }),
       });
 
       if (!res.ok || !res.body) {
@@ -248,6 +374,19 @@ export default function Home() {
           }
         }
       }
+
+      finalMessages = [
+        ...next,
+        {
+          role: "assistant",
+          content: assistantContent,
+          ...(assistantReasoning ? { reasoning: assistantReasoning } : {}),
+        },
+      ];
+
+      // Auto-save the completed conversation so the user can't lose it.
+      await persistMessages(currentSlug, currentPhase, finalMessages);
+      await refreshProjects();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setMessages((msgs) => msgs.slice(0, -1));
@@ -256,41 +395,128 @@ export default function Home() {
     }
   }
 
-  function reset() {
-    if (streaming) return;
-    setMessages([]);
-    setError(null);
+  async function reset() {
+    if (streaming || !currentSlug) return;
+    if (
+      messages.length > 0 &&
+      !window.confirm("このフェーズの会話を消去します。よろしいですか？")
+    ) {
+      return;
+    }
+    try {
+      await fetch(`/api/projects/${currentSlug}/${currentPhase}`, {
+        method: "DELETE",
+      });
+      setMessages([]);
+      setError(null);
+      await refreshProjects();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
+
+  const hasProject = currentSlug !== null;
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-zinc-950">
       <header className="border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="mx-auto flex max-w-3xl items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-              ops-grill チャット
-            </h1>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              ローカル LLM (llama.cpp) を使った業務分析グリルのデモ
-            </p>
+        <div className="mx-auto flex max-w-3xl flex-col gap-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                ops-grill チャット
+              </h1>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                ローカル LLM (llama.cpp) を使った業務分析グリルのデモ
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={currentSlug ?? ""}
+                onChange={(e) => {
+                  setCurrentSlug(e.target.value || null);
+                  setCurrentPhase("b-pre");
+                }}
+                disabled={streaming || projects.length === 0}
+                className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+              >
+                {projects.length === 0 && (
+                  <option value="">プロジェクト未作成</option>
+                )}
+                {projects.map((p) => (
+                  <option key={p.slug} value={p.slug}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handleCreateProject}
+                disabled={streaming}
+                className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+              >
+                + 新規
+              </button>
+              <button
+                onClick={handleDeleteProject}
+                disabled={streaming || !hasProject}
+                title="プロジェクト削除"
+                className="rounded-md border border-zinc-300 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                削除
+              </button>
+            </div>
           </div>
-          <button
-            onClick={reset}
-            disabled={streaming || messages.length === 0}
-            className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            会話をクリア
-          </button>
+          {hasProject && (
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1 rounded-md bg-zinc-100 p-1 dark:bg-zinc-800">
+                {PHASES.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setCurrentPhase(p)}
+                    disabled={streaming || p === currentPhase}
+                    className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                      p === currentPhase
+                        ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-zinc-100"
+                        : "text-zinc-600 hover:text-zinc-900 disabled:opacity-40 dark:text-zinc-400 dark:hover:text-zinc-100"
+                    }`}
+                  >
+                    {PHASE_LABELS[p]}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={reset}
+                disabled={streaming || messages.length === 0}
+                className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                このフェーズを消去
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-6">
-        {messages.length === 0 ? (
+        {!hasProject ? (
           <div className="flex flex-1 flex-col items-center justify-center text-center text-zinc-500 dark:text-zinc-400">
-            <p className="text-sm">業務分析グリルを始めましょう。</p>
-            <p className="mt-2 text-xs">
-              例: 「来週、人事課長に給与計算業務のヒアリングをします。準備を手伝ってください」
+            <p className="text-sm">
+              まずプロジェクト（業務）を作成してください。
             </p>
+            <p className="mt-2 text-xs">
+              右上の「+ 新規」から業務名を入力すると、B-pre / C / B-post
+              の各フェーズが永続化されます。
+            </p>
+          </div>
+        ) : loadingPhase ? (
+          <div className="flex flex-1 items-center justify-center text-sm text-zinc-500 dark:text-zinc-400">
+            読み込み中…
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center text-center text-zinc-500 dark:text-zinc-400">
+            <p className="text-sm">
+              {PHASE_LABELS[currentPhase]} を始めましょう。
+            </p>
+            <p className="mt-2 text-xs">{PHASE_HINTS[currentPhase]}</p>
           </div>
         ) : (
           <div className="flex flex-1 flex-col gap-4">
@@ -327,14 +553,18 @@ export default function Home() {
                 send();
               }
             }}
-            placeholder="メッセージを入力 (Cmd/Ctrl + Enter で送信)"
+            placeholder={
+              hasProject
+                ? "メッセージを入力 (Cmd/Ctrl + Enter で送信)"
+                : "先にプロジェクトを作成してください"
+            }
             rows={3}
-            disabled={streaming}
+            disabled={streaming || !hasProject}
             className="flex-1 resize-none rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-zinc-500 focus:outline-none disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-500"
           />
           <button
             type="submit"
-            disabled={streaming || !input.trim()}
+            disabled={streaming || !input.trim() || !hasProject}
             className="self-end rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
             {streaming ? "送信中…" : "送信"}

@@ -1,5 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  buildPreviousPhaseContext,
+  isValidPhase,
+  isValidSlug,
+} from "@/app/lib/projects";
 
 const LLAMA_BASE_URL = process.env.LLAMA_BASE_URL ?? "http://localhost:8080";
 const MODEL_NAME = process.env.LLAMA_MODEL ?? "gemma";
@@ -19,7 +24,11 @@ async function loadSkill(): Promise<string> {
 type ChatMessage = { role: "user" | "assistant" | "system"; content: string };
 
 export async function POST(req: Request) {
-  let body: { messages?: ChatMessage[] };
+  let body: {
+    messages?: ChatMessage[];
+    projectSlug?: unknown;
+    phase?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
@@ -39,6 +48,20 @@ export async function POST(req: Request) {
       { error: `ops-grill SKILL.md not found at ${SKILL_PATH}` },
       { status: 500 },
     );
+  }
+
+  if (isValidSlug(body.projectSlug) && isValidPhase(body.phase)) {
+    try {
+      const previous = await buildPreviousPhaseContext(
+        body.projectSlug,
+        body.phase,
+      );
+      if (previous) {
+        systemPrompt = `${systemPrompt}\n\n---\n\n${previous}`;
+      }
+    } catch {
+      // ignore — chat should still proceed even if previous context fails to load
+    }
   }
 
   let upstream: Response;
