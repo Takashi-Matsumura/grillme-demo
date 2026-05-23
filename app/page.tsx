@@ -279,6 +279,31 @@ export default function Home() {
     }
   }
 
+  async function handleRenameProject() {
+    if (!currentSlug || streaming) return;
+    const current = projects.find((p) => p.slug === currentSlug);
+    if (!current) return;
+    const newName = window.prompt("新しい業務名を入力してください", current.name);
+    if (newName === null) return;
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === current.name) return;
+    try {
+      const res = await fetch(`/api/projects/${currentSlug}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error ?? `rename failed: ${res.status}`);
+      }
+      await refreshProjects();
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function handleDeleteProject() {
     if (!currentSlug || streaming) return;
     const target = projects.find((p) => p.slug === currentSlug);
@@ -483,6 +508,14 @@ export default function Home() {
                 className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
               >
                 + 新規
+              </button>
+              <button
+                onClick={handleRenameProject}
+                disabled={streaming || !hasProject}
+                title="プロジェクト名を変更"
+                className="rounded-md border border-zinc-300 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                リネーム
               </button>
               <button
                 onClick={handleDeleteProject}
