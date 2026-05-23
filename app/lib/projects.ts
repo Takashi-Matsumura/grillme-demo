@@ -19,7 +19,9 @@ export type {
 };
 export { PHASES } from "@/app/lib/types";
 
-const ANALYSES_DIR = path.join(process.cwd(), "analyses");
+function analysesDir(): string {
+  return process.env.OPS_GRILL_ANALYSES_DIR ?? path.join(process.cwd(), "analyses");
+}
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,127}$/;
 
@@ -32,7 +34,7 @@ export function isValidPhase(phase: unknown): phase is Phase {
 }
 
 export function projectDir(slug: string): string {
-  return path.join(ANALYSES_DIR, slug);
+  return path.join(analysesDir(), slug);
 }
 
 export function projectMetaPath(slug: string): string {
@@ -68,7 +70,7 @@ async function pathExists(p: string): Promise<boolean> {
 }
 
 async function ensureAnalysesDir(): Promise<void> {
-  await mkdir(ANALYSES_DIR, { recursive: true });
+  await mkdir(analysesDir(), { recursive: true });
 }
 
 async function readJsonFile<T>(p: string): Promise<T | null> {
@@ -119,7 +121,7 @@ export async function listProjects(): Promise<ProjectMeta[]> {
   await ensureAnalysesDir();
   let entries: string[];
   try {
-    entries = await readdir(ANALYSES_DIR);
+    entries = await readdir(analysesDir());
   } catch {
     return [];
   }

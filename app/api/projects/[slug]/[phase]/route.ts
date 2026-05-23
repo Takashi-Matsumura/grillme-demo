@@ -7,6 +7,7 @@ import {
   type Phase,
   savePhaseConversation,
 } from "@/app/lib/projects";
+import { validateMessages } from "@/app/lib/validation";
 
 type Params = { slug: string; phase: string };
 
@@ -36,15 +37,16 @@ export async function PUT(req: Request, ctx: { params: Promise<Params> }) {
   } catch {
     return Response.json({ error: "invalid JSON body" }, { status: 400 });
   }
-  if (!Array.isArray(body.messages)) {
-    return Response.json({ error: "messages must be an array" }, { status: 400 });
+  const result = validateMessages(body.messages);
+  if (!result.ok) {
+    return Response.json({ error: result.error }, { status: result.status });
   }
 
   try {
     const conv = await savePhaseConversation(
       v.slug,
       v.phase,
-      body.messages as Message[],
+      result.messages as Message[],
     );
     return Response.json({ conversation: conv });
   } catch (e) {

@@ -5,6 +5,7 @@ import {
   isValidPhase,
   isValidSlug,
 } from "@/app/lib/projects";
+import { validateMessages } from "@/app/lib/validation";
 
 const LLAMA_BASE_URL = process.env.LLAMA_BASE_URL ?? "http://localhost:8080";
 const MODEL_NAME = process.env.LLAMA_MODEL ?? "gemma";
@@ -39,10 +40,11 @@ export async function POST(req: Request) {
     return Response.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
-  const messages = body.messages ?? [];
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return Response.json({ error: "messages required" }, { status: 400 });
+  const result = validateMessages(body.messages);
+  if (!result.ok) {
+    return Response.json({ error: result.error }, { status: result.status });
   }
+  const messages = result.messages;
 
   let systemPrompt: string;
   try {
