@@ -279,6 +279,31 @@ export default function Home() {
     }
   }
 
+  async function handleRenameProject() {
+    if (!currentSlug || streaming) return;
+    const current = projects.find((p) => p.slug === currentSlug);
+    if (!current) return;
+    const newName = window.prompt("新しい業務名を入力してください", current.name);
+    if (newName === null) return;
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === current.name) return;
+    try {
+      const res = await fetch(`/api/projects/${currentSlug}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error ?? `rename failed: ${res.status}`);
+      }
+      await refreshProjects();
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function handleDeleteProject() {
     if (!currentSlug || streaming) return;
     const target = projects.find((p) => p.slug === currentSlug);
@@ -389,10 +414,23 @@ export default function Home() {
       await refreshProjects();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setMessages((msgs) => msgs.slice(0, -1));
+      // Remove both the user message and the empty assistant placeholder, and
+      // restore the input so the user can press 送信 again to retry, or edit.
+      setMessages((msgs) => msgs.slice(0, -2));
+      setInput(trimmed);
     } finally {
       setStreaming(false);
     }
+  }
+
+  async function handleEditMessage(index: number, newContent: string) {
+    if (!currentSlug || streaming) return;
+    const updated = messages.map((m, i) =>
+      i === index ? { ...m, content: newContent } : m,
+    );
+    setMessages(updated);
+    await persistMessages(currentSlug, currentPhase, updated);
+    await refreshProjects();
   }
 
   function downloadMarkdown() {
@@ -485,6 +523,14 @@ export default function Home() {
                 + 新規
               </button>
               <button
+                onClick={handleRenameProject}
+                disabled={streaming || !hasProject}
+                title="プロジェクト名を変更"
+                className="rounded-md border border-zinc-300 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                リネーム
+              </button>
+              <button
                 onClick={handleDeleteProject}
                 disabled={streaming || !hasProject}
                 title="プロジェクト削除"
@@ -558,13 +604,21 @@ export default function Home() {
           </div>
         ) : (
           <div className="flex flex-1 flex-col gap-4">
-            {messages.map((m, i) => (
-              <MessageBubble
-                key={i}
-                message={m}
-                streaming={streaming && i === messages.length - 1}
-              />
-            ))}
+            {messages.map((m, i) => {
+              const isStreaming = streaming && i === messages.length - 1;
+              return (
+                <MessageBubble
+                  key={i}
+                  message={m}
+                  streaming={isStreaming}
+                  onEdit={
+                    m.role === "assistant" && !isStreaming
+                      ? (content) => handleEditMessage(i, content)
+                      : undefined
+                  }
+                />
+              );
+            })}
             <div ref={bottomRef} />
           </div>
         )}
@@ -616,13 +670,25 @@ export default function Home() {
 function MessageBubble({
   message,
   streaming,
+  onEdit,
 }: {
   message: Message;
   streaming: boolean;
+  onEdit?: (newContent: string) => void;
 }) {
   const isUser = message.role === "user";
   const hasReasoning = !isUser && message.reasoning && message.reasoning.length > 0;
   const hasContent = message.content.length > 0;
+  const canEdit = !!onEdit && !isUser && !streaming && hasContent;
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(message.content);
+
+  // Keep draft in sync when the underlying message content changes from
+  // outside (e.g., switching phases or receiving streamed updates).
+  useEffect(() => {
+    if (!editing) setDraft(message.content);
+  }, [message.content, editing]);
 
   const components = useMemo<Components>(
     () => ({
@@ -649,45 +715,90 @@ function MessageBubble({
     [streaming],
   );
 
+  function saveEdit() {
+    if (!onEdit) return;
+    onEdit(draft);
+    setEditing(false);
+  }
+
+  function cancelEdit() {
+    setDraft(message.content);
+    setEditing(false);
+  }
+
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`flex max-w-[85%] flex-col gap-2 rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-          isUser
-            ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-            : "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-800"
-        }`}
-      >
-        {hasReasoning && (
-          <details className="rounded-md bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-            <summary className="cursor-pointer select-none font-medium">
-              {hasContent ? "思考プロセス" : "考え中..."}
-            </summary>
-            <div className="mt-2 break-words italic">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-                {message.reasoning ?? ""}
-              </ReactMarkdown>
+      <div className="flex max-w-[85%] flex-col">
+        <div
+          className={`flex flex-col gap-2 rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+            isUser
+              ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+              : "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-800"
+          } ${editing ? "min-w-[28rem]" : ""}`}
+        >
+          {hasReasoning && (
+            <details className="rounded-md bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+              <summary className="cursor-pointer select-none font-medium">
+                {hasContent ? "思考プロセス" : "考え中..."}
+              </summary>
+              <div className="mt-2 break-words italic">
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+                  {message.reasoning ?? ""}
+                </ReactMarkdown>
+              </div>
+            </details>
+          )}
+          {editing ? (
+            <div className="flex flex-col gap-2">
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={Math.min(24, Math.max(4, draft.split("\n").length + 1))}
+                autoFocus
+                className="w-full resize-y rounded-md border border-zinc-300 bg-white p-2 font-mono text-xs text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={cancelEdit}
+                  className="rounded-md border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={saveEdit}
+                  className="rounded-md bg-zinc-900 px-3 py-1 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                >
+                  保存
+                </button>
+              </div>
             </div>
-          </details>
-        )}
-        {hasContent ? (
-          isUser ? (
-            <div className="whitespace-pre-wrap break-words">{message.content}</div>
+          ) : hasContent ? (
+            isUser ? (
+              <div className="whitespace-pre-wrap break-words">{message.content}</div>
+            ) : (
+              <div className="break-words">
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+                  {message.content}
+                </ReactMarkdown>
+              </div>
+            )
           ) : (
-            <div className="break-words">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-                {message.content}
-              </ReactMarkdown>
-            </div>
-          )
-        ) : (
-          !hasReasoning && (
-            <span className="inline-flex gap-1">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400" />
-              <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400 [animation-delay:150ms]" />
-              <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400 [animation-delay:300ms]" />
-            </span>
-          )
+            !hasReasoning && (
+              <span className="inline-flex gap-1">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400" />
+                <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400 [animation-delay:150ms]" />
+                <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400 [animation-delay:300ms]" />
+              </span>
+            )
+          )}
+        </div>
+        {canEdit && !editing && (
+          <button
+            onClick={() => setEditing(true)}
+            className="mt-1 self-start text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+          >
+            ✏️ 編集
+          </button>
         )}
       </div>
     </div>

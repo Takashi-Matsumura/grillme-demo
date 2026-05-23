@@ -134,6 +134,21 @@ export async function deleteProject(slug: string): Promise<boolean> {
   return true;
 }
 
+export async function renameProject(
+  slug: string,
+  newName: string,
+): Promise<ProjectMeta> {
+  if (!isValidSlug(slug)) throw new Error("invalid slug");
+  const trimmed = (newName ?? "").trim().slice(0, 100);
+  if (!trimmed) throw new Error("name is required");
+  const meta = await readJsonFile<ProjectMeta>(projectMetaPath(slug));
+  if (!meta) throw new Error("project not found");
+  meta.name = trimmed;
+  meta.updatedAt = new Date().toISOString();
+  await writeJsonFile(projectMetaPath(slug), meta);
+  return meta;
+}
+
 async function touchProject(slug: string): Promise<void> {
   const meta = await readJsonFile<ProjectMeta>(projectMetaPath(slug));
   if (!meta) return;
