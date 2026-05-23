@@ -16,6 +16,10 @@ const SKILL_PATH = path.join(
 let cachedSkill: string | null = null;
 
 async function loadSkill(): Promise<string> {
+  // In dev, always re-read so SKILL.md edits take effect without restarting.
+  if (process.env.NODE_ENV === "development") {
+    return readFile(SKILL_PATH, "utf-8");
+  }
   if (cachedSkill !== null) return cachedSkill;
   cachedSkill = await readFile(SKILL_PATH, "utf-8");
   return cachedSkill;

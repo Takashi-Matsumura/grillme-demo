@@ -395,6 +395,31 @@ export default function Home() {
     }
   }
 
+  function downloadMarkdown() {
+    if (!currentSlug) return;
+    const lastAssistant = [...messages]
+      .reverse()
+      .find((m) => m.role === "assistant" && m.content.trim().length > 0);
+    if (!lastAssistant) return;
+    const projectName =
+      projects.find((p) => p.slug === currentSlug)?.name ?? currentSlug;
+    const phaseLabel = PHASE_LABELS[currentPhase];
+    const today = new Date().toISOString().slice(0, 10);
+    const filename = `${projectName}__${phaseLabel}__${today}.md`;
+
+    const blob = new Blob([lastAssistant.content], {
+      type: "text/markdown;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   async function reset() {
     if (streaming || !currentSlug) return;
     if (
@@ -416,6 +441,9 @@ export default function Home() {
   }
 
   const hasProject = currentSlug !== null;
+  const canExport = messages.some(
+    (m) => m.role === "assistant" && m.content.trim().length > 0,
+  );
 
   return (
     <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-zinc-950">
@@ -484,13 +512,23 @@ export default function Home() {
                   </button>
                 ))}
               </div>
-              <button
-                onClick={reset}
-                disabled={streaming || messages.length === 0}
-                className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              >
-                このフェーズを消去
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={downloadMarkdown}
+                  disabled={streaming || !canExport}
+                  title="このフェーズの最新の応答を Markdown としてダウンロード"
+                  className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  📥 Markdown
+                </button>
+                <button
+                  onClick={reset}
+                  disabled={streaming || messages.length === 0}
+                  className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  このフェーズを消去
+                </button>
+              </div>
             </div>
           )}
         </div>
