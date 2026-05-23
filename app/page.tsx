@@ -1,6 +1,74 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+const mdComponents: Components = {
+  h1: (props) => <h1 className="mt-4 mb-2 text-base font-bold" {...props} />,
+  h2: (props) => <h2 className="mt-4 mb-2 text-base font-bold" {...props} />,
+  h3: (props) => <h3 className="mt-3 mb-1 text-sm font-bold" {...props} />,
+  h4: (props) => <h4 className="mt-3 mb-1 text-sm font-semibold" {...props} />,
+  p: (props) => <p className="my-2 leading-relaxed" {...props} />,
+  ul: (props) => <ul className="my-2 ml-6 list-disc space-y-1" {...props} />,
+  ol: (props) => <ol className="my-2 ml-6 list-decimal space-y-1" {...props} />,
+  li: (props) => <li className="leading-relaxed" {...props} />,
+  strong: (props) => <strong className="font-semibold" {...props} />,
+  em: (props) => <em className="italic" {...props} />,
+  a: (props) => (
+    <a
+      className="text-blue-600 underline hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+      target="_blank"
+      rel="noopener noreferrer"
+      {...props}
+    />
+  ),
+  code: ({ className, children, ...props }) => {
+    const isBlock = /language-/.test(className ?? "");
+    return isBlock ? (
+      <code className={`${className ?? ""} font-mono text-xs`} {...props}>
+        {children}
+      </code>
+    ) : (
+      <code
+        className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-[0.85em] dark:bg-zinc-800"
+        {...props}
+      >
+        {children}
+      </code>
+    );
+  },
+  pre: (props) => (
+    <pre
+      className="my-2 overflow-x-auto rounded-md bg-zinc-100 p-3 text-xs leading-relaxed dark:bg-zinc-800"
+      {...props}
+    />
+  ),
+  blockquote: (props) => (
+    <blockquote
+      className="my-2 border-l-2 border-zinc-300 pl-3 text-zinc-600 dark:border-zinc-600 dark:text-zinc-400"
+      {...props}
+    />
+  ),
+  hr: () => <hr className="my-3 border-zinc-200 dark:border-zinc-700" />,
+  table: (props) => (
+    <div className="my-2 overflow-x-auto">
+      <table className="border-collapse text-xs" {...props} />
+    </div>
+  ),
+  th: (props) => (
+    <th
+      className="border border-zinc-300 px-2 py-1 text-left font-semibold dark:border-zinc-700"
+      {...props}
+    />
+  ),
+  td: (props) => (
+    <td
+      className="border border-zinc-300 px-2 py-1 align-top dark:border-zinc-700"
+      {...props}
+    />
+  ),
+};
 
 type Message = {
   role: "user" | "assistant";
@@ -202,13 +270,23 @@ function MessageBubble({ message }: { message: Message }) {
             <summary className="cursor-pointer select-none font-medium">
               {hasContent ? "思考プロセス" : "考え中..."}
             </summary>
-            <div className="mt-2 whitespace-pre-wrap break-words italic">
-              {message.reasoning}
+            <div className="mt-2 break-words italic">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                {message.reasoning ?? ""}
+              </ReactMarkdown>
             </div>
           </details>
         )}
         {hasContent ? (
-          <div className="whitespace-pre-wrap break-words">{message.content}</div>
+          isUser ? (
+            <div className="whitespace-pre-wrap break-words">{message.content}</div>
+          ) : (
+            <div className="break-words">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                {message.content}
+              </ReactMarkdown>
+            </div>
+          )
         ) : (
           !hasReasoning && (
             <span className="inline-flex gap-1">
