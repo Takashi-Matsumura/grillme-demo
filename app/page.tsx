@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -69,6 +69,96 @@ const mdComponents: Components = {
     />
   ),
 };
+
+let mermaidPromise: Promise<typeof import("mermaid").default> | null = null;
+
+function loadMermaid() {
+  if (!mermaidPromise) {
+    mermaidPromise = import("mermaid").then((mod) => {
+      mod.default.initialize({
+        startOnLoad: false,
+        theme: "default",
+        securityLevel: "strict",
+        fontFamily: "inherit",
+      });
+      return mod.default;
+    });
+  }
+  return mermaidPromise;
+}
+
+function MermaidDiagram({
+  code,
+  streaming,
+}: {
+  code: string;
+  streaming: boolean;
+}) {
+  const [svg, setSvg] = useState<string | null>(null);
+  const [renderError, setRenderError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (streaming) {
+      setSvg(null);
+      setRenderError(null);
+      return;
+    }
+    let cancelled = false;
+    setRenderError(null);
+
+    loadMermaid()
+      .then(async (mermaid) => {
+        if (cancelled) return;
+        try {
+          const id = `mermaid-${Math.random().toString(36).slice(2)}`;
+          const result = await mermaid.render(id, code);
+          if (cancelled) return;
+          setSvg(result.svg);
+        } catch (e) {
+          if (cancelled) return;
+          setSvg(null);
+          setRenderError(e instanceof Error ? e.message : String(e));
+        }
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setSvg(null);
+        setRenderError(e instanceof Error ? e.message : String(e));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [code, streaming]);
+
+  if (streaming || renderError) {
+    return (
+      <pre className="my-2 overflow-x-auto rounded-md bg-zinc-100 p-3 text-xs leading-relaxed dark:bg-zinc-800">
+        <code className="font-mono">{code}</code>
+        {renderError && (
+          <div className="mt-2 text-xs text-red-600 dark:text-red-400">
+            Mermaid 描画失敗: {renderError}
+          </div>
+        )}
+      </pre>
+    );
+  }
+
+  if (!svg) {
+    return (
+      <div className="my-2 rounded-md border border-zinc-200 bg-white p-3 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-50 dark:text-zinc-600">
+        図を描画中…
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="my-2 overflow-x-auto rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-50"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}
 
 type Message = {
   role: "user" | "assistant";
@@ -205,7 +295,11 @@ export default function Home() {
         ) : (
           <div className="flex flex-1 flex-col gap-4">
             {messages.map((m, i) => (
-              <MessageBubble key={i} message={m} />
+              <MessageBubble
+                key={i}
+                message={m}
+                streaming={streaming && i === messages.length - 1}
+              />
             ))}
             <div ref={bottomRef} />
           </div>
@@ -251,10 +345,41 @@ export default function Home() {
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({
+  message,
+  streaming,
+}: {
+  message: Message;
+  streaming: boolean;
+}) {
   const isUser = message.role === "user";
   const hasReasoning = !isUser && message.reasoning && message.reasoning.length > 0;
   const hasContent = message.content.length > 0;
+
+  const components = useMemo<Components>(
+    () => ({
+      ...mdComponents,
+      pre: ({ children, ...props }) => {
+        const child = children as
+          | { props?: { className?: string; children?: unknown } }
+          | undefined;
+        const className = child?.props?.className ?? "";
+        if (/language-mermaid/.test(className)) {
+          const code = String(child?.props?.children ?? "").trim();
+          return <MermaidDiagram code={code} streaming={streaming} />;
+        }
+        return (
+          <pre
+            className="my-2 overflow-x-auto rounded-md bg-zinc-100 p-3 text-xs leading-relaxed dark:bg-zinc-800"
+            {...props}
+          >
+            {children}
+          </pre>
+        );
+      },
+    }),
+    [streaming],
+  );
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -271,7 +396,7 @@ function MessageBubble({ message }: { message: Message }) {
               {hasContent ? "思考プロセス" : "考え中..."}
             </summary>
             <div className="mt-2 break-words italic">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
                 {message.reasoning ?? ""}
               </ReactMarkdown>
             </div>
@@ -282,7 +407,7 @@ function MessageBubble({ message }: { message: Message }) {
             <div className="whitespace-pre-wrap break-words">{message.content}</div>
           ) : (
             <div className="break-words">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
                 {message.content}
               </ReactMarkdown>
             </div>
