@@ -414,7 +414,10 @@ export default function Home() {
       await refreshProjects();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setMessages((msgs) => msgs.slice(0, -1));
+      // Remove both the user message and the empty assistant placeholder, and
+      // restore the input so the user can press 送信 again to retry, or edit.
+      setMessages((msgs) => msgs.slice(0, -2));
+      setInput(trimmed);
     } finally {
       setStreaming(false);
     }
