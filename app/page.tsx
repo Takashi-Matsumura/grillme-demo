@@ -4,11 +4,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  type ArchivedSession,
   type Message,
   type Phase,
   PHASES,
   type ProjectMeta,
+  type SessionMeta,
 } from "@/app/lib/types";
+
+function formatLocalTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+}
 
 const PHASE_LABELS: Record<Phase, string> = {
   "b-pre": "B-pre 準備",
@@ -186,6 +199,10 @@ export default function Home() {
   const [currentSlug, setCurrentSlug] = useState<string | null>(null);
   const [currentPhase, setCurrentPhase] = useState<Phase>("b-pre");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [history, setHistory] = useState<SessionMeta[]>([]);
+  const [viewingArchive, setViewingArchive] = useState<ArchivedSession | null>(
+    null,
+  );
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [loadingPhase, setLoadingPhase] = useState(false);
@@ -213,21 +230,37 @@ export default function Home() {
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, [refreshProjects]);
 
-  // When (slug, phase) changes, load that phase's conversation.
+  const refreshHistory = useCallback(
+    async (slug: string, phase: Phase): Promise<SessionMeta[]> => {
+      const res = await fetch(`/api/projects/${slug}/${phase}/history`);
+      if (!res.ok) throw new Error("履歴一覧の取得に失敗");
+      const data = (await res.json()) as { sessions: SessionMeta[] };
+      setHistory(data.sessions);
+      return data.sessions;
+    },
+    [],
+  );
+
+  // When (slug, phase) changes, load that phase's current conversation and
+  // its session history, and exit any open archive view.
   useEffect(() => {
+    setViewingArchive(null);
     if (!currentSlug) {
       setMessages([]);
+      setHistory([]);
       return;
     }
     let cancelled = false;
     setLoadingPhase(true);
-    fetch(`/api/projects/${currentSlug}/${currentPhase}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`load failed: ${res.status}`);
-        const data = (await res.json()) as {
-          conversation: { messages: Message[] };
-        };
-        if (!cancelled) setMessages(data.conversation.messages);
+    Promise.all([
+      fetch(`/api/projects/${currentSlug}/${currentPhase}`).then(async (r) => {
+        if (!r.ok) throw new Error(`load failed: ${r.status}`);
+        return (await r.json()) as { conversation: { messages: Message[] } };
+      }),
+      refreshHistory(currentSlug, currentPhase),
+    ])
+      .then(([convRes]) => {
+        if (!cancelled) setMessages(convRes.conversation.messages);
       })
       .catch((e) => {
         if (!cancelled) {
@@ -241,7 +274,7 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [currentSlug, currentPhase]);
+  }, [currentSlug, currentPhase, refreshHistory]);
 
   async function persistMessages(slug: string, phase: Phase, msgs: Message[]) {
     try {
@@ -324,7 +357,7 @@ export default function Home() {
 
   async function send() {
     const trimmed = input.trim();
-    if (!trimmed || streaming || !currentSlug) return;
+    if (!trimmed || streaming || !currentSlug || viewingArchive) return;
     setError(null);
 
     const userMsg: Message = { role: "user", content: trimmed };
@@ -424,7 +457,7 @@ export default function Home() {
   }
 
   async function handleEditMessage(index: number, newContent: string) {
-    if (!currentSlug || streaming) return;
+    if (!currentSlug || streaming || viewingArchive) return;
     const updated = messages.map((m, i) =>
       i === index ? { ...m, content: newContent } : m,
     );
@@ -433,9 +466,76 @@ export default function Home() {
     await refreshProjects();
   }
 
+  async function handleNewSession() {
+    if (!currentSlug || streaming || viewingArchive) return;
+    if (messages.length === 0) return;
+    if (
+      !window.confirm(
+        "現在のセッションをアーカイブして新規セッションを開始します。よろしいですか？",
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/projects/${currentSlug}/${currentPhase}/history`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error ?? `archive failed: ${res.status}`);
+      }
+      setMessages([]);
+      setError(null);
+      await Promise.all([
+        refreshHistory(currentSlug, currentPhase),
+        refreshProjects(),
+      ]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function handleViewArchive(sessionId: string) {
+    if (!currentSlug || streaming) return;
+    try {
+      const res = await fetch(
+        `/api/projects/${currentSlug}/${currentPhase}/history/${sessionId}`,
+      );
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error ?? `load failed: ${res.status}`);
+      }
+      const data = (await res.json()) as { session: ArchivedSession };
+      setViewingArchive(data.session);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function handleBackToCurrent() {
+    setViewingArchive(null);
+  }
+
+  async function handleDeleteArchive(sessionId: string) {
+    if (!currentSlug || streaming) return;
+    if (!window.confirm("この履歴セッションを削除しますか？")) return;
+    try {
+      await fetch(
+        `/api/projects/${currentSlug}/${currentPhase}/history/${sessionId}`,
+        { method: "DELETE" },
+      );
+      if (viewingArchive?.id === sessionId) setViewingArchive(null);
+      await refreshHistory(currentSlug, currentPhase);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   function downloadMarkdown() {
     if (!currentSlug) return;
-    const lastAssistant = [...messages]
+    const source = viewingArchive ? viewingArchive.messages : messages;
+    const lastAssistant = [...source]
       .reverse()
       .find((m) => m.role === "assistant" && m.content.trim().length > 0);
     if (!lastAssistant) return;
@@ -443,7 +543,8 @@ export default function Home() {
       projects.find((p) => p.slug === currentSlug)?.name ?? currentSlug;
     const phaseLabel = PHASE_LABELS[currentPhase];
     const today = new Date().toISOString().slice(0, 10);
-    const filename = `${projectName}__${phaseLabel}__${today}.md`;
+    const suffix = viewingArchive ? `__archive-${viewingArchive.id}` : "";
+    const filename = `${projectName}__${phaseLabel}__${today}${suffix}.md`;
 
     const blob = new Blob([lastAssistant.content], {
       type: "text/markdown;charset=utf-8",
@@ -459,10 +560,12 @@ export default function Home() {
   }
 
   async function reset() {
-    if (streaming || !currentSlug) return;
+    if (streaming || !currentSlug || viewingArchive) return;
     if (
       messages.length > 0 &&
-      !window.confirm("このフェーズの会話を消去します。よろしいですか？")
+      !window.confirm(
+        "このフェーズの現在の会話を消去します。よろしいですか？（履歴は残ります）",
+      )
     ) {
       return;
     }
@@ -479,7 +582,9 @@ export default function Home() {
   }
 
   const hasProject = currentSlug !== null;
-  const canExport = messages.some(
+  const isReadOnly = viewingArchive !== null;
+  const displayedMessages = viewingArchive ? viewingArchive.messages : messages;
+  const canExport = displayedMessages.some(
     (m) => m.role === "assistant" && m.content.trim().length > 0,
   );
 
@@ -559,6 +664,35 @@ export default function Home() {
                 ))}
               </div>
               <div className="flex items-center gap-2">
+                {history.length > 0 && (
+                  <select
+                    value={viewingArchive?.id ?? ""}
+                    onChange={(e) => {
+                      if (e.target.value) handleViewArchive(e.target.value);
+                      else handleBackToCurrent();
+                    }}
+                    disabled={streaming}
+                    title="このフェーズのアーカイブ済みセッション"
+                    className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                  >
+                    <option value="">現在のセッション</option>
+                    {history.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        履歴 {formatLocalTime(s.updatedAt)}（{s.messageCount}件）
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <button
+                  onClick={handleNewSession}
+                  disabled={
+                    streaming || isReadOnly || messages.length === 0
+                  }
+                  title="現在のセッションをアーカイブし、新規セッションを開始"
+                  className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  + 新規セッション
+                </button>
                 <button
                   onClick={downloadMarkdown}
                   disabled={streaming || !canExport}
@@ -569,7 +703,7 @@ export default function Home() {
                 </button>
                 <button
                   onClick={reset}
-                  disabled={streaming || messages.length === 0}
+                  disabled={streaming || isReadOnly || messages.length === 0}
                   className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
                   このフェーズを消去
@@ -581,6 +715,30 @@ export default function Home() {
       </header>
 
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-6">
+        {isReadOnly && viewingArchive && (
+          <div className="mb-4 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              アーカイブ閲覧中（編集・送信不可）:{" "}
+              <strong>{formatLocalTime(viewingArchive.updatedAt)}</strong>（
+              {viewingArchive.messages.length} 件）
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleDeleteArchive(viewingArchive.id)}
+                disabled={streaming}
+                className="rounded-md border border-amber-400 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-40 dark:border-amber-700 dark:text-amber-100 dark:hover:bg-amber-900"
+              >
+                この履歴を削除
+              </button>
+              <button
+                onClick={handleBackToCurrent}
+                className="rounded-md bg-amber-700 px-2 py-1 text-xs font-medium text-white hover:bg-amber-800 dark:bg-amber-600 dark:hover:bg-amber-500"
+              >
+                現在のセッションに戻る
+              </button>
+            </div>
+          </div>
+        )}
         {!hasProject ? (
           <div className="flex flex-1 flex-col items-center justify-center text-center text-zinc-500 dark:text-zinc-400">
             <p className="text-sm">
@@ -595,7 +753,7 @@ export default function Home() {
           <div className="flex flex-1 items-center justify-center text-sm text-zinc-500 dark:text-zinc-400">
             読み込み中…
           </div>
-        ) : messages.length === 0 ? (
+        ) : displayedMessages.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center text-center text-zinc-500 dark:text-zinc-400">
             <p className="text-sm">
               {PHASE_LABELS[currentPhase]} を始めましょう。
@@ -604,15 +762,18 @@ export default function Home() {
           </div>
         ) : (
           <div className="flex flex-1 flex-col gap-4">
-            {messages.map((m, i) => {
-              const isStreaming = streaming && i === messages.length - 1;
+            {displayedMessages.map((m, i) => {
+              const isStreaming =
+                !isReadOnly &&
+                streaming &&
+                i === displayedMessages.length - 1;
               return (
                 <MessageBubble
                   key={i}
                   message={m}
                   streaming={isStreaming}
                   onEdit={
-                    m.role === "assistant" && !isStreaming
+                    !isReadOnly && m.role === "assistant" && !isStreaming
                       ? (content) => handleEditMessage(i, content)
                       : undefined
                   }
@@ -646,17 +807,19 @@ export default function Home() {
               }
             }}
             placeholder={
-              hasProject
-                ? "メッセージを入力 (Cmd/Ctrl + Enter で送信)"
-                : "先にプロジェクトを作成してください"
+              !hasProject
+                ? "先にプロジェクトを作成してください"
+                : isReadOnly
+                  ? "アーカイブ閲覧中は送信できません"
+                  : "メッセージを入力 (Cmd/Ctrl + Enter で送信)"
             }
             rows={3}
-            disabled={streaming || !hasProject}
+            disabled={streaming || !hasProject || isReadOnly}
             className="flex-1 resize-none rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-zinc-500 focus:outline-none disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder-zinc-500"
           />
           <button
             type="submit"
-            disabled={streaming || !input.trim() || !hasProject}
+            disabled={streaming || !input.trim() || !hasProject || isReadOnly}
             className="self-end rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
             {streaming ? "送信中…" : "送信"}
