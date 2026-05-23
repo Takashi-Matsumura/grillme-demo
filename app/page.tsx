@@ -128,18 +128,18 @@ function MermaidDiagram({
   code: string;
   streaming: boolean;
 }) {
-  const [svg, setSvg] = useState<string | null>(null);
-  const [renderError, setRenderError] = useState<string | null>(null);
+  // Track the rendered output along with the code it was rendered FOR.
+  // When `code` changes, the existing state is treated as stale and we
+  // re-render — no need to manually clear state in an effect.
+  const [render, setRender] = useState<{
+    for: string;
+    svg?: string;
+    error?: string;
+  } | null>(null);
 
   useEffect(() => {
-    if (streaming) {
-      setSvg(null);
-      setRenderError(null);
-      return;
-    }
+    if (streaming) return;
     let cancelled = false;
-    setRenderError(null);
-
     loadMermaid()
       .then(async (mermaid) => {
         if (cancelled) return;
@@ -147,17 +147,21 @@ function MermaidDiagram({
           const id = `mermaid-${Math.random().toString(36).slice(2)}`;
           const result = await mermaid.render(id, code);
           if (cancelled) return;
-          setSvg(result.svg);
+          setRender({ for: code, svg: result.svg });
         } catch (e) {
           if (cancelled) return;
-          setSvg(null);
-          setRenderError(e instanceof Error ? e.message : String(e));
+          setRender({
+            for: code,
+            error: e instanceof Error ? e.message : String(e),
+          });
         }
       })
       .catch((e) => {
         if (cancelled) return;
-        setSvg(null);
-        setRenderError(e instanceof Error ? e.message : String(e));
+        setRender({
+          for: code,
+          error: e instanceof Error ? e.message : String(e),
+        });
       });
 
     return () => {
@@ -165,20 +169,22 @@ function MermaidDiagram({
     };
   }, [code, streaming]);
 
-  if (streaming || renderError) {
+  const fresh = render?.for === code ? render : null;
+
+  if (streaming || fresh?.error) {
     return (
       <pre className="my-2 overflow-x-auto rounded-md bg-zinc-100 p-3 text-xs leading-relaxed dark:bg-zinc-800">
         <code className="font-mono">{code}</code>
-        {renderError && (
+        {fresh?.error && (
           <div className="mt-2 text-xs text-red-600 dark:text-red-400">
-            Mermaid 描画失敗: {renderError}
+            Mermaid 描画失敗: {fresh.error}
           </div>
         )}
       </pre>
     );
   }
 
-  if (!svg) {
+  if (!fresh?.svg) {
     return (
       <div className="my-2 rounded-md border border-zinc-200 bg-white p-3 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-50 dark:text-zinc-600">
         図を描画中…
@@ -189,7 +195,7 @@ function MermaidDiagram({
   return (
     <div
       className="my-2 overflow-x-auto rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-50"
-      dangerouslySetInnerHTML={{ __html: svg }}
+      dangerouslySetInnerHTML={{ __html: fresh.svg }}
     />
   );
 }
@@ -223,6 +229,9 @@ export default function Home() {
 
   // Mount: load projects and auto-select most recent.
   useEffect(() => {
+    // Initial async load; sync setState inside .then is fine but the rule
+    // flags the chain. Pattern is standard for client-side bootstrap.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshProjects()
       .then((list) => {
         if (list.length > 0) setCurrentSlug(list[0].slug);
@@ -242,8 +251,11 @@ export default function Home() {
   );
 
   // When (slug, phase) changes, load that phase's current conversation and
-  // its session history, and exit any open archive view.
+  // its session history, and exit any open archive view. The three sync
+  // setStates below are intentional UI resets; refactor candidate noted in
+  // the Wave 3 PR for a key-based remount approach.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setViewingArchive(null);
     if (!currentSlug) {
       setMessages([]);
@@ -848,8 +860,11 @@ function MessageBubble({
   const [draft, setDraft] = useState(message.content);
 
   // Keep draft in sync when the underlying message content changes from
-  // outside (e.g., switching phases or receiving streamed updates).
+  // outside (e.g., switching phases or receiving streamed updates). The
+  // canonical "useEffect to sync prop into state" pattern triggers the
+  // rule; refactor candidate is uncontrolled textarea + key remount.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!editing) setDraft(message.content);
   }, [message.content, editing]);
 
