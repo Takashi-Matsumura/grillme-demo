@@ -41,9 +41,52 @@ type LawDataResponse = {
   law_full_text?: LawNode;
 };
 
-export async function searchLawsByTitle(
+// e-Gov の laws API は次の点で厳しく、ローカル LLM が法令名を
+// 書く時に容易に外れる:
+//   1. 句読点(中黒「・」と読点「、」)の違いを別物として扱う。
+//      LLM は「、」→「・」に正規化しがち。
+//   2. 「等/又は/及び/に関する/並びに」のような接続語より長い
+//      正式名称を渡すと、prefix の表記揺れですぐに 0 件になる。
+//      逆に、接続語の手前で切った「主要名詞句」は柔軟にマッチする。
+// したがって元クエリ・句読点バリアント・接続語の手前で chop した
+// バリアントを順に試す。
+const CONNECTORS = ["等", "又は", "及び", "に関する", "並びに"];
+
+function chopAtConnector(title: string): string {
+  let cut = title.length;
+  for (const c of CONNECTORS) {
+    const i = title.indexOf(c);
+    if (i > 0 && i < cut) cut = i;
+  }
+  return title.slice(0, cut);
+}
+
+export function buildTitleVariants(title: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (s: string) => {
+    const t = s.trim();
+    if (t && !seen.has(t)) {
+      seen.add(t);
+      out.push(t);
+    }
+  };
+  add(title);
+  add(title.replace(/・/g, "、"));
+  add(title.replace(/、/g, "・"));
+  add(chopAtConnector(title));
+  add(chopAtConnector(title.replace(/・/g, "、")));
+  add(title.replace(/[・、,]/g, ""));
+  return out;
+}
+
+function normalizeTitle(title: string): string {
+  return title.replace(/[・、,\s]/g, "");
+}
+
+async function searchLawsByTitleOnce(
   title: string,
-  limit = 5,
+  limit: number,
 ): Promise<EgovLawSummary[]> {
   const url =
     `${EGOV_BASE}/laws?law_title=${encodeURIComponent(title)}` +
@@ -60,6 +103,17 @@ export async function searchLawsByTitle(
       lawNum: x.law_info?.law_num ?? "",
     }))
     .filter((x) => x.lawId && x.lawTitle);
+}
+
+export async function searchLawsByTitle(
+  title: string,
+  limit = 5,
+): Promise<EgovLawSummary[]> {
+  for (const variant of buildTitleVariants(title)) {
+    const hits = await searchLawsByTitleOnce(variant, limit);
+    if (hits.length > 0) return hits;
+  }
+  return [];
 }
 
 export async function fetchLawData(lawId: string): Promise<LawDataResponse> {
@@ -104,7 +158,10 @@ export async function getArticleByLawTitle(
   articleNum: number | string,
 ): Promise<EgovArticle | null> {
   const candidates = await searchLawsByTitle(lawTitle);
-  const exact = candidates.find((x) => x.lawTitle === lawTitle) ?? candidates[0];
+  const target = normalizeTitle(lawTitle);
+  const exact =
+    candidates.find((x) => normalizeTitle(x.lawTitle) === target) ??
+    candidates[0];
   if (!exact) return null;
   const data = await fetchLawData(exact.lawId);
   const art = findArticle(data.law_full_text, articleNum);
