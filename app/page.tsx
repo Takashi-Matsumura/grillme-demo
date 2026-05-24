@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { DomainResearchModal } from "@/app/components/DomainResearchModal";
+import type { DomainKnowledge } from "@/app/lib/domain-knowledge";
 import {
   type ArchivedSession,
   type Message,
@@ -213,6 +215,9 @@ export default function Home() {
   const [streaming, setStreaming] = useState(false);
   const [loadingPhase, setLoadingPhase] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [domainKnowledge, setDomainKnowledge] =
+    useState<DomainKnowledge | null>(null);
+  const [researchOpen, setResearchOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -249,6 +254,32 @@ export default function Home() {
     },
     [],
   );
+
+  const refreshDomainKnowledge = useCallback(async (slug: string) => {
+    try {
+      const res = await fetch(`/api/projects/${slug}/domain-knowledge`);
+      if (!res.ok) {
+        setDomainKnowledge(null);
+        return;
+      }
+      const data = (await res.json()) as {
+        domainKnowledge: DomainKnowledge | null;
+      };
+      setDomainKnowledge(data.domainKnowledge);
+    } catch {
+      setDomainKnowledge(null);
+    }
+  }, []);
+
+  // Refresh DK whenever the active project changes.
+  useEffect(() => {
+    if (!currentSlug) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDomainKnowledge(null);
+      return;
+    }
+    refreshDomainKnowledge(currentSlug);
+  }, [currentSlug, refreshDomainKnowledge]);
 
   // When (slug, phase) changes, load that phase's current conversation and
   // its session history, and exit any open archive view. The three sync
@@ -659,8 +690,27 @@ export default function Home() {
           </div>
           {hasProject && (
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1 rounded-md bg-zinc-100 p-1 dark:bg-zinc-800">
-                {PHASES.map((p) => (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setResearchOpen(true)}
+                  disabled={streaming}
+                  title={
+                    domainKnowledge
+                      ? `ドメイン知識: 「${domainKnowledge.query}」 を ${formatLocalTime(
+                          domainKnowledge.generatedAt,
+                        )} に保存済み`
+                      : "外部の一次情報からドメイン知識を集める"
+                  }
+                  className={`rounded-md border px-2 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40 ${
+                    domainKnowledge
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 dark:hover:bg-emerald-900"
+                      : "border-zinc-300 text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  📚 {domainKnowledge ? "ドメイン知識あり" : "ドメイン下調べ"}
+                </button>
+                <div className="flex items-center gap-1 rounded-md bg-zinc-100 p-1 dark:bg-zinc-800">
+                  {PHASES.map((p) => (
                   <button
                     key={p}
                     onClick={() => setCurrentPhase(p)}
@@ -674,6 +724,7 @@ export default function Home() {
                     {PHASE_LABELS[p]}
                   </button>
                 ))}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 {history.length > 0 && (
@@ -838,6 +889,19 @@ export default function Home() {
           </button>
         </form>
       </main>
+      {researchOpen && currentSlug && (
+        <DomainResearchModal
+          projectSlug={currentSlug}
+          defaultQuery={
+            projects.find((p) => p.slug === currentSlug)?.name ?? ""
+          }
+          existing={domainKnowledge}
+          onClose={() => setResearchOpen(false)}
+          onSaved={() => {
+            if (currentSlug) refreshDomainKnowledge(currentSlug);
+          }}
+        />
+      )}
     </div>
   );
 }
