@@ -199,7 +199,7 @@ export function DomainResearchModal({
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-              📚 ドメイン下調べ
+              📚 法令・実務リサーチ
             </h2>
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
               e-Gov 法令検索・厚労省・協会けんぽ から一次情報を tool calling
