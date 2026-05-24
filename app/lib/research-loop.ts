@@ -15,8 +15,21 @@ import {
   searchLawsByTitle,
 } from "./egov";
 import { type FetchedPage, fetchPage } from "./fetch-page";
+import {
+  TRUSTED_HOSTS,
+  formatTrustedUrlsForPrompt,
+  isHostTrusted,
+  selectRelevantUrls,
+} from "./trusted-urls";
 
-export const RESEARCH_SYSTEM_PROMPT = `あなたは日本の公的情報源から、ユーザーが指定したテーマに関する一次情報を集めるリサーチアシスタントです。最終目的は、そのテーマに関わる業務分掌（誰が何の責任を負うか）を整理するための「ドメイン知識ノート」を作ること。
+// クエリに応じてシステムプロンプトを組み立てる。
+// trusted-urls.ts のレジストリからテーマに該当する URL だけを注入し、
+// gemma が他ドメインの URL を捏造する余地を減らす。
+export function buildResearchSystemPrompt(query: string): string {
+  const urls = selectRelevantUrls(query);
+  const urlList = formatTrustedUrlsForPrompt(urls);
+  const hostsList = [...TRUSTED_HOSTS].join(", ");
+  return `あなたは日本の公的情報源から、ユーザーが指定したテーマに関する一次情報を集めるリサーチアシスタントです。最終目的は、そのテーマに関わる業務分掌（誰が何の責任を負うか）を整理するための「ドメイン知識ノート」を作ること。
 
 利用できるツールは3つです:
   egov_search(title: string)
@@ -28,12 +41,14 @@ export const RESEARCH_SYSTEM_PROMPT = `あなたは日本の公的情報源か�
     が無い情報源（協会けんぽ・厚労省 等）で使う。
 
 【fetch_page の URL は捏造禁止】
-存在を自分で確認していない URL を fetch_page に渡してはいけない。
-ドメインや path をそれっぽく組み立てるのではなく、下記の検証済み URL か、
-egov_search で確実に得た law_id を元にしたものだけを使うこと:
-  - 協会けんぽ 健診ハブ:           https://www.kyoukaikenpo.or.jp/g4/cat410/
-  - 厚労省 健康診断トップ:         https://www.mhlw.go.jp/
-  - e-Gov 法令検索:                https://laws.e-gov.go.jp/
+fetch_page は次のホストに限定されており、それ以外は実行前に拒否される:
+  ${hostsList}
+推奨される検証済み URL は以下のとおり。これ以外の URL を組み立てる時も、
+ホストは上記から選び、path も推測ではなく確認可能な範囲にとどめること:
+${urlList}
+
+リストに該当 URL がないテーマでは、無理に fetch_page を使わず、
+egov_search / egov_article で法令側の情報を厚くする方を優先すること。
 
 【重要: クエリリライト】
 ユーザーが与えるテーマは、通称・旧称・俗称であることが多い。
@@ -69,6 +84,7 @@ egov_search で確実に得た law_id を元にしたものだけを使うこと
 - <相手企業に聞くべき具体的な質問を3〜5個>
 
 重要: ツールを呼ぶターンでは JSON 以外を絶対に出力しないこと。`;
+}
 
 export type ResearchToolCall =
   | { tool: "egov_search"; title: string }
@@ -172,7 +188,7 @@ export async function runResearch(
   onEvent: (e: ResearchEvent) => void = () => {},
 ): Promise<ResearchResult> {
   const convo: LlmMessage[] = [
-    { role: "system", content: RESEARCH_SYSTEM_PROMPT },
+    { role: "system", content: buildResearchSystemPrompt(query) },
     { role: "user", content: query },
   ];
   const events: ResearchEvent[] = [];
@@ -249,22 +265,41 @@ export async function runResearch(
             : `egov_article は該当条文を見つけられませんでした。条番号やクエリを見直してください。`,
         });
       } else if (call.tool === "fetch_page") {
-        const page: FetchedPage = await fetchPage(call.url, 4000);
-        emit({
-          kind: "fetch_page_result",
-          url: page.url,
-          ok: page.ok,
-          status: page.status,
-          chars: page.chars,
-        });
-        emit({ kind: "phase", phase: "feedback", iter });
-        convo.push({
-          role: "user",
-          content:
-            `fetch_page("${call.url}") の本文(${page.chars}字):\n\n` +
-            page.text +
-            `\n\nこの内容を根拠に、十分なら最終ノートをまとめてください。`,
-        });
+        if (!isHostTrusted(call.url)) {
+          emit({
+            kind: "fetch_page_result",
+            url: call.url,
+            ok: false,
+            status: 0,
+            chars: 0,
+          });
+          emit({ kind: "phase", phase: "feedback", iter });
+          convo.push({
+            role: "user",
+            content:
+              `fetch_page("${call.url}") は信頼ホスト外のため実行を拒否しました。` +
+              `許可されているホストは: ${[...TRUSTED_HOSTS].join(", ")}\n` +
+              `捏造を疑い、システムプロンプトの検証済み URL から選び直すか、` +
+              `egov_search/egov_article で法令側の情報に切り替えてください。`,
+          });
+        } else {
+          const page: FetchedPage = await fetchPage(call.url, 4000);
+          emit({
+            kind: "fetch_page_result",
+            url: page.url,
+            ok: page.ok,
+            status: page.status,
+            chars: page.chars,
+          });
+          emit({ kind: "phase", phase: "feedback", iter });
+          convo.push({
+            role: "user",
+            content:
+              `fetch_page("${call.url}") の本文(${page.chars}字):\n\n` +
+              page.text +
+              `\n\nこの内容を根拠に、十分なら最終ノートをまとめてください。`,
+          });
+        }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
