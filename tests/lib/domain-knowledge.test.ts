@@ -4,10 +4,14 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  deleteArchivedDomainKnowledge,
   deleteDomainKnowledge,
   domainKnowledgePath,
   formatDomainKnowledgeForPrompt,
+  getArchivedDomainKnowledge,
+  listArchivedDomainKnowledge,
   readDomainKnowledge,
+  restoreArchivedDomainKnowledge,
   saveDomainKnowledge,
   type DomainKnowledge,
 } from "@/app/lib/domain-knowledge";
@@ -82,6 +86,95 @@ describe("domainKnowledgePath", () => {
   it("uses domain_knowledge.json inside the project directory", () => {
     const p = domainKnowledgePath("2026-05-24-x");
     expect(path.basename(p)).toBe("domain_knowledge.json");
+  });
+});
+
+describe("history / archive behavior", () => {
+  const v1: DomainKnowledge = {
+    query: "定期健康診断",
+    content: "v1",
+    iterations: 3,
+    generatedAt: "2026-05-23T10:00:00.000Z",
+  };
+  const v2: DomainKnowledge = {
+    query: "成人病予防健診",
+    content: "v2",
+    iterations: 5,
+    generatedAt: "2026-05-24T10:00:00.000Z",
+  };
+  const v3: DomainKnowledge = {
+    query: "生活習慣病予防健診",
+    content: "v3",
+    iterations: 4,
+    generatedAt: "2026-05-25T10:00:00.000Z",
+  };
+
+  it("archives the previous version when a new one is saved", async () => {
+    const { slug } = await createProject("hist1");
+    await saveDomainKnowledge(slug, v1);
+    expect(await listArchivedDomainKnowledge(slug)).toHaveLength(0);
+
+    await saveDomainKnowledge(slug, v2);
+    const archives = await listArchivedDomainKnowledge(slug);
+    expect(archives).toHaveLength(1);
+    expect(archives[0].query).toBe("定期健康診断");
+  });
+
+  it("keeps multiple archives across repeated saves", async () => {
+    const { slug } = await createProject("hist-many");
+    await saveDomainKnowledge(slug, v1);
+    await saveDomainKnowledge(slug, v2);
+    await saveDomainKnowledge(slug, v3);
+    const archives = await listArchivedDomainKnowledge(slug);
+    expect(archives.map((a) => a.query)).toEqual([
+      "成人病予防健診", // v2 archived last
+      "定期健康診断", // v1 archived first
+    ]);
+  });
+
+  it("fetches a specific archive by id with full content", async () => {
+    const { slug } = await createProject("hist-fetch");
+    await saveDomainKnowledge(slug, v1);
+    await saveDomainKnowledge(slug, v2);
+    const archives = await listArchivedDomainKnowledge(slug);
+    const detail = await getArchivedDomainKnowledge(slug, archives[0].id);
+    expect(detail?.content).toBe("v1");
+    expect(detail?.archivedAt).toBeTruthy();
+  });
+
+  it("deletes a specific archive", async () => {
+    const { slug } = await createProject("hist-delete");
+    await saveDomainKnowledge(slug, v1);
+    await saveDomainKnowledge(slug, v2);
+    const archives = await listArchivedDomainKnowledge(slug);
+    expect(await deleteArchivedDomainKnowledge(slug, archives[0].id)).toBe(
+      true,
+    );
+    expect(await listArchivedDomainKnowledge(slug)).toHaveLength(0);
+  });
+
+  it("restoring swaps current with an archived version", async () => {
+    const { slug } = await createProject("hist-restore");
+    await saveDomainKnowledge(slug, v1);
+    await saveDomainKnowledge(slug, v2);
+    // current = v2, history = [v1 archived]
+    const v1ArchiveId = (await listArchivedDomainKnowledge(slug))[0].id;
+    const restored = await restoreArchivedDomainKnowledge(slug, v1ArchiveId);
+    expect(restored?.content).toBe("v1");
+
+    // current = v1, history = [v2 archived, not v1]
+    expect((await readDomainKnowledge(slug))?.content).toBe("v1");
+    const after = await listArchivedDomainKnowledge(slug);
+    expect(after).toHaveLength(1);
+    expect(after[0].query).toBe("成人病予防健診");
+  });
+
+  it("rejects invalid archive ids", async () => {
+    const { slug } = await createProject("hist-invalid");
+    await saveDomainKnowledge(slug, v1);
+    expect(await getArchivedDomainKnowledge(slug, "not-an-id")).toBeNull();
+    expect(await deleteArchivedDomainKnowledge(slug, "not-an-id")).toBe(false);
+    expect(await restoreArchivedDomainKnowledge(slug, "not-an-id")).toBeNull();
   });
 });
 

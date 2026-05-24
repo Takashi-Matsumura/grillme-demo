@@ -1,9 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { DomainKnowledge } from "@/app/lib/domain-knowledge";
+import type {
+  ArchivedDomainKnowledge,
+  DomainKnowledge,
+  DomainKnowledgeArchiveMeta,
+} from "@/app/lib/domain-knowledge";
 import type { ResearchEvent } from "@/app/lib/research-loop";
 
 // /api/research が SSE で配信する ResearchEvent 系に加え、
@@ -35,6 +39,85 @@ export function DomainResearchModal({
   const [answer, setAnswer] = useState<string | null>(existing?.content ?? null);
   const [saved, setSaved] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [archives, setArchives] = useState<DomainKnowledgeArchiveMeta[]>([]);
+  const [expanded, setExpanded] = useState<ArchivedDomainKnowledge | null>(
+    null,
+  );
+
+  const refreshArchives = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/projects/${projectSlug}/domain-knowledge/history`,
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        archives: DomainKnowledgeArchiveMeta[];
+      };
+      setArchives(data.archives);
+    } catch {
+      // history is non-critical; ignore fetch failures
+    }
+  }, [projectSlug]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refreshArchives();
+  }, [refreshArchives]);
+
+  async function expandArchive(id: string) {
+    if (expanded?.id === id) {
+      setExpanded(null);
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/projects/${projectSlug}/domain-knowledge/history/${id}`,
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as { archive: ArchivedDomainKnowledge };
+      setExpanded(data.archive);
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function restoreArchive(id: string) {
+    if (!window.confirm("この版を現行に戻します。よろしいですか？")) return;
+    try {
+      const res = await fetch(
+        `/api/projects/${projectSlug}/domain-knowledge/history/${id}/restore`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setErrorMsg(err.error ?? `restore failed: ${res.status}`);
+        return;
+      }
+      onSaved();
+      onClose();
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function removeArchive(id: string) {
+    if (!window.confirm("この履歴を削除しますか？（元に戻せません）")) return;
+    try {
+      const res = await fetch(
+        `/api/projects/${projectSlug}/domain-knowledge/history/${id}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setErrorMsg(err.error ?? `delete failed: ${res.status}`);
+        return;
+      }
+      if (expanded?.id === id) setExpanded(null);
+      await refreshArchives();
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   async function run() {
     if (!query.trim() || running) return;
@@ -86,6 +169,7 @@ export function DomainResearchModal({
           } else if (ev.kind === "saved") {
             setSaved(true);
             onSaved();
+            refreshArchives();
           } else if (ev.kind === "save_error") {
             setErrorMsg(`保存に失敗: ${ev.message}`);
           } else if (ev.kind === "error") {
@@ -198,7 +282,7 @@ export function DomainResearchModal({
           <div className="mt-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                最終ノート
+                {saved ? "最終ノート" : "現在のドメイン知識"}
               </span>
               {saved && (
                 <span className="text-xs text-emerald-600 dark:text-emerald-400">
@@ -214,6 +298,67 @@ export function DomainResearchModal({
               </div>
             </div>
           </div>
+        )}
+
+        {archives.length > 0 && (
+          <details className="mt-4" open={!running && !answer}>
+            <summary className="cursor-pointer text-xs font-medium text-zinc-600 dark:text-zinc-400">
+              履歴 ({archives.length} 件)
+            </summary>
+            <div className="mt-2 space-y-2">
+              {archives.map((a) => {
+                const isExpanded = expanded?.id === a.id;
+                return (
+                  <div
+                    key={a.id}
+                    className="rounded-md border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-950"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs text-zinc-700 dark:text-zinc-300">
+                        <div className="font-medium">「{a.query}」</div>
+                        <div className="mt-0.5 text-zinc-500 dark:text-zinc-400">
+                          {new Date(a.generatedAt).toLocaleString()} 生成 ・{" "}
+                          {a.iterations} 反復 ・{" "}
+                          {new Date(a.archivedAt).toLocaleString()} 退避
+                        </div>
+                      </div>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => expandArchive(a.id)}
+                          className="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                        >
+                          {isExpanded ? "閉じる" : "内容"}
+                        </button>
+                        <button
+                          onClick={() => restoreArchive(a.id)}
+                          disabled={running}
+                          className="rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-40 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900"
+                        >
+                          🔄 この版に戻す
+                        </button>
+                        <button
+                          onClick={() => removeArchive(a.id)}
+                          disabled={running}
+                          className="rounded-md border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-40 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                    {isExpanded && expanded && (
+                      <div className="mt-3 max-h-64 overflow-y-auto rounded-md border border-zinc-200 bg-white p-3 text-xs leading-relaxed dark:border-zinc-700 dark:bg-zinc-900">
+                        <div className="prose prose-xs max-w-none dark:prose-invert">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {expanded.content}
+                          </ReactMarkdown>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </details>
         )}
       </div>
     </div>
