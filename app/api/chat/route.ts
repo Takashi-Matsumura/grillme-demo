@@ -1,6 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  formatDomainKnowledgeForPrompt,
+  readDomainKnowledge,
+} from "@/app/lib/domain-knowledge";
+import {
   buildPreviousPhaseContext,
   isValidPhase,
   isValidSlug,
@@ -56,17 +60,30 @@ export async function POST(req: Request) {
     );
   }
 
-  if (isValidSlug(body.projectSlug) && isValidPhase(body.phase)) {
+  if (isValidSlug(body.projectSlug)) {
+    // Domain knowledge は「世界が知っていること」(背景知識) として、
+    // phase context (このプロジェクトでこれまで話されたこと) より前に置く。
     try {
-      const previous = await buildPreviousPhaseContext(
-        body.projectSlug,
-        body.phase,
-      );
-      if (previous) {
-        systemPrompt = `${systemPrompt}\n\n---\n\n${previous}`;
+      const dk = await readDomainKnowledge(body.projectSlug);
+      if (dk) {
+        systemPrompt = `${systemPrompt}\n\n---\n\n${formatDomainKnowledgeForPrompt(dk)}`;
       }
     } catch {
-      // ignore — chat should still proceed even if previous context fails to load
+      // ignore — chat should still proceed even if domain knowledge fails to load
+    }
+
+    if (isValidPhase(body.phase)) {
+      try {
+        const previous = await buildPreviousPhaseContext(
+          body.projectSlug,
+          body.phase,
+        );
+        if (previous) {
+          systemPrompt = `${systemPrompt}\n\n---\n\n${previous}`;
+        }
+      } catch {
+        // ignore — chat should still proceed even if previous context fails to load
+      }
     }
   }
 
