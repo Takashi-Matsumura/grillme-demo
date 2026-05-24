@@ -6,9 +6,19 @@
 //   システムプロンプトに「ここから選べ」と検証済み URL を明示し、
 //   fetch_page 側でも信頼ホスト以外を弾く二段ガードで防ぐ。
 //
-//   ここに登録する URL は **追加前に curl で HTTP 200 確認** すること。
-//   私(LLM/開発者) もハルシネーションするので、URL を本ファイルに足す時は
-//   必ず実在を確かめる。
+// 追加・運用フロー:
+//   1. 候補 URL を curl で HTTP 200 確認:
+//      curl -sL -o /dev/null -w "%{http_code}\n" <URL>
+//   2. 本ファイルの TRUSTED_URLS に追記。ホストが TRUSTED_HOSTS 外なら
+//      ホストも追加 (信頼できる公的機関のみ)。
+//   3. テーマキーワードはユーザーが書く自然な日本語で複数。
+//      クエリ文字列に includes() 一致するだけなので過剰に増やさない
+//      (誤検出で関係ない URL を提示しても LLM が混乱する)。
+//   4. `npm run check:urls` で全 URL の生存確認。CI に組み込まないのは
+//      外部依存で flake しやすいため、手動運用とする。
+//   5. レジストリに対応 URL が無いテーマでは、LLM は fetch_page を
+//      無理に使わず egov_search/egov_article 側で情報を厚くする
+//      (システムプロンプトでそう指示している)。
 
 export type TrustedUrl = {
   url: string;
@@ -51,6 +61,46 @@ export const TRUSTED_URLS: TrustedUrl[] = [
     url: "https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/koyou_roudou/koyoukintou/seisaku06/index.html",
     description: "厚労省 雇用環境・均等 (ハラスメント対策等)",
     themeKeywords: ["ハラスメント", "パワハラ", "セクハラ", "マタハラ"],
+  },
+  {
+    url: "https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/koyou_roudou/roudoukijun/jikan/index.html",
+    description: "厚労省 労働時間制度 (36協定・時間外労働・上限規制)",
+    themeKeywords: ["36協定", "時間外労働", "残業", "労働時間", "上限規制"],
+  },
+  {
+    url: "https://www.mhlw.go.jp/bunya/roudoukijun/anzeneisei06/index.html",
+    description: "厚労省 産業保健 (産業医・健康管理体制)",
+    themeKeywords: ["産業医", "産業保健", "健康管理"],
+  },
+  {
+    url: "https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/koyou_roudou/roudoukijun/rousai/index.html",
+    description: "厚労省 労災保険",
+    themeKeywords: ["労災", "労災保険", "業務災害", "通勤災害"],
+  },
+  {
+    url: "https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/koyou_roudou/koyou/index.html",
+    description: "厚労省 雇用 (雇用保険・職業安定)",
+    themeKeywords: ["雇用保険", "失業給付", "求職", "ハローワーク"],
+  },
+  {
+    url: "https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/0000192188.html",
+    description: "厚労省 副業・兼業の促進に関するガイドライン",
+    themeKeywords: ["副業", "兼業"],
+  },
+  {
+    url: "https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/koyou_roudou/roudoukijun/index.html",
+    description:
+      "厚労省 労働基準ハブ (就業規則・労働条件・賃金・解雇など個別ページが無いテーマの入口)",
+    themeKeywords: [
+      "就業規則",
+      "労働条件",
+      "労働基準",
+      "賃金",
+      "解雇",
+      "退職",
+      "有給",
+      "年次有給休暇",
+    ],
   },
 ];
 

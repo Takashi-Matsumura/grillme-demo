@@ -66,6 +66,30 @@ describe("selectRelevantUrls", () => {
       "https://www.kyoukaikenpo.or.jp/g4/cat410/",
     );
   });
+
+  it("matches 36協定 to the labor-time URL", () => {
+    const urls = selectRelevantUrls("36協定の届出フロー");
+    expect(
+      urls.some((u) => u.description.includes("労働時間制度")),
+    ).toBe(true);
+  });
+
+  it("matches 産業医 to the occupational health URL", () => {
+    const urls = selectRelevantUrls("産業医の選任義務");
+    expect(urls.some((u) => u.description.includes("産業保健"))).toBe(true);
+  });
+
+  it("matches 副業 to the dual-job guideline URL", () => {
+    const urls = selectRelevantUrls("副業の社内承認フロー");
+    expect(urls.some((u) => u.description.includes("副業"))).toBe(true);
+  });
+
+  it("falls back to 労働基準ハブ for 就業規則 (no dedicated page)", () => {
+    const urls = selectRelevantUrls("就業規則の改定手順");
+    expect(urls.some((u) => u.description.includes("労働基準ハブ"))).toBe(
+      true,
+    );
+  });
 });
 
 describe("registry invariants", () => {
