@@ -1,10 +1,12 @@
 // ドメイン下調べ Tool calling ループの SSE エンドポイント。
 //
-// 入力: { "query": "成人病予防健診" }
-// 出力: SSE で phase / tool 結果 / 最終ノート を逐次配信。
-// 本体ロジックは app/lib/research-loop.ts の runResearch にあり、
-// このルートは SSE 化と入力バリデーションだけを担う。
+// 入力:
+//   { "query": "成人病予防健診", "projectSlug": "<optional>" }
+// projectSlug を渡した場合、最終ノートを analyses/<slug>/domain_knowledge.json
+// に保存し、`/api/chat` 側で system prompt に注入される。
 
+import { saveDomainKnowledge } from "@/app/lib/domain-knowledge";
+import { isValidSlug } from "@/app/lib/projects";
 import { type ResearchEvent, runResearch } from "@/app/lib/research-loop";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +14,7 @@ export const dynamic = "force-dynamic";
 const MAX_QUERY_CHARS = 500;
 
 export async function POST(req: Request) {
-  let body: { query?: unknown };
+  let body: { query?: unknown; projectSlug?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -28,6 +30,7 @@ export async function POST(req: Request) {
     );
   }
   const query = body.query.trim();
+  const projectSlug = isValidSlug(body.projectSlug) ? body.projectSlug : null;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -35,15 +38,35 @@ export async function POST(req: Request) {
       const send = (e: ResearchEvent) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
       };
+      const sendRaw = (obj: unknown) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      };
       try {
-        await runResearch(query, send);
+        const result = await runResearch(query, send);
+        if (projectSlug && result.answer) {
+          try {
+            await saveDomainKnowledge(projectSlug, {
+              query,
+              content: result.answer,
+              iterations: result.iterations,
+              generatedAt: new Date().toISOString(),
+            });
+            sendRaw({ kind: "saved", projectSlug });
+          } catch (saveErr) {
+            sendRaw({
+              kind: "save_error",
+              message:
+                saveErr instanceof Error ? saveErr.message : String(saveErr),
+            });
+          }
+        }
       } catch (e) {
         send({
           kind: "error",
           message: e instanceof Error ? e.message : String(e),
         });
       } finally {
-        controller.enqueue(encoder.encode(`data: {"kind":"done"}\n\n`));
+        sendRaw({ kind: "done" });
         controller.close();
       }
     },
