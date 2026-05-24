@@ -26,9 +26,9 @@ function formatLocalTime(iso: string): string {
 }
 
 const PHASE_LABELS: Record<Phase, string> = {
-  "b-pre": "B-pre 準備",
-  c: "C 伴走",
-  "b-post": "B-post 整理",
+  "b-pre": "① ヒアリング前準備",
+  c: "② ヒアリング中の伴走",
+  "b-post": "③ ヒアリング後の整理",
 };
 
 const PHASE_HINTS: Record<Phase, string> = {
@@ -696,10 +696,10 @@ export default function Home() {
                   disabled={streaming}
                   title={
                     domainKnowledge
-                      ? `ドメイン知識: 「${domainKnowledge.query}」 を ${formatLocalTime(
+                      ? `「${domainKnowledge.query}」を ${formatLocalTime(
                           domainKnowledge.generatedAt,
-                        )} に保存済み`
-                      : "外部の一次情報からドメイン知識を集める"
+                        )} にリサーチ済み（GRILL に注入されます）`
+                      : "ヒアリング前に法令・実務情報を集めて GRILL に注入する"
                   }
                   className={`rounded-md border px-2 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40 ${
                     domainKnowledge
@@ -707,7 +707,7 @@ export default function Home() {
                       : "border-zinc-300 text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   }`}
                 >
-                  📚 {domainKnowledge ? "ドメイン知識あり" : "ドメイン下調べ"}
+                  📚 {domainKnowledge ? "リサーチ済み" : "法令・実務リサーチ"}
                 </button>
                 <div className="flex items-center gap-1 rounded-md bg-zinc-100 p-1 dark:bg-zinc-800">
                   {PHASES.map((p) => (
@@ -808,8 +808,8 @@ export default function Home() {
               まずプロジェクト（業務）を作成してください。
             </p>
             <p className="mt-2 text-xs">
-              右上の「+ 新規」から業務名を入力すると、B-pre / C / B-post
-              の各フェーズが永続化されます。
+              右上の「+ 新規」から業務名を入力すると、ヒアリング前準備 /
+              ヒアリング中の伴走 / ヒアリング後の整理 の各フェーズが永続化されます。
             </p>
           </div>
         ) : loadingPhase ? (

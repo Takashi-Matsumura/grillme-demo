@@ -1,86 +1,267 @@
-# grill-me — Claude Code Skill メモ
+# grill-me / ops-grill デモアプリ
 
-Matt Pocock 氏（元 Vercel）が公開している Claude Code 用スキル `grill-me` のメモ。
-このリポジトリは、このスキルを実際に使って試すためのデモ環境（Next.js プロジェクト）です。
+ローカル LLM (llama.cpp) を使った業務分析グリル (**ops-grill**) の動作デモ。Next.js + React で実装。
+
+Claude Code 用の `grill-me` スキルを発展させた ops-grill は、中小企業のバックオフィス業務 1 つを **「ヒアリング前準備 → ヒアリング中の伴走 → ヒアリング後の整理」** の 3 フェーズで言語化し、業務分掌 + Mermaid フロー図にまとめる支援ツール。さらに **外部一次情報 (法令・実務) を tool calling で自律収集して GRILL のシステムプロンプトに注入** することで、ローカル LLM 単独では辿り着けない法的根拠 (例: 労働安全衛生規則 第44条) や実務上の運用基準 (例: 協会けんぽ生活習慣病予防健診の補助制度) を踏まえた質問を出せるようになっている。
+
+[grill-me 本家の解説](#参考-grill-me-本家) は README 末尾に。
+
+---
+
+## 起動方法
+
+### 前提
+
+- Node.js 20+, npm
+- `llama-server` (llama.cpp) を `http://localhost:8080` で起動 (推奨: `gemma-3-12b-it` 系)
+
+### セットアップ
+
+```sh
+npm install
+npm run dev    # http://localhost:3000
+```
+
+環境変数 (任意):
+
+| 変数 | 既定値 | 用途 |
+|---|---|---|
+| `LLAMA_BASE_URL` | `http://localhost:8080` | llama-server エンドポイント |
+| `LLAMA_MODEL` | `gemma` | モデル名 |
+| `OPS_GRILL_ANALYSES_DIR` | `./analyses/` | プロジェクトデータの保存先 |
+
+開発・運用用コマンド:
+
+```sh
+npm run typecheck      # tsc --noEmit
+npm run lint           # eslint
+npm test               # vitest unit tests
+npm run check:urls     # 信頼 URL レジストリの生存確認 (HTTP 200)
+npm run test:research  # tool calling ループの単独動作確認
+```
+
+---
+
+## 使い方ガイド — 「生活習慣病予防健診」を例に
+
+中小企業の人事課に対して **「生活習慣病予防健診の業務分掌をまとめる」** プロジェクトを最初から最後まで辿ります。
+
+### Step 0: プロジェクトを作成
+
+1. ヘッダ右上の「**＋ 新規**」をクリック
+2. 業務名: `生活習慣病予防健診` を入力
+
+→ プロジェクトセレクタに新規プロジェクトが現れ、自動選択されます。
+
+### Step 1: 📚 法令・実務リサーチ (推奨、所要 1〜3 分)
+
+ヒアリングに入る前に、**外部の一次情報を自律収集** して GRILL に注入します。これがあると無いとでは、ヒアリング質問の精度が大きく変わります。
+
+操作:
+
+1. フェーズタブの左にある「**📚 法令・実務リサーチ**」をクリック
+2. クエリ欄に `生活習慣病予防健診` が入っていることを確認 (プロジェクト名がデフォルト)
+3. 「**実行**」をクリック → SSE で各ステップが流れる
+4. 「✅ 保存しました」が表示されたら「**閉じる**」
+
+→ ボタンが緑バッジ「**📚 リサーチ済み**」に変化。
+
+> 💡 LLM (gemma) は「生活習慣病予防健診」が法令上の正式名称ではないことを自動で見抜き、`労働安全衛生規則 第44条 (定期健康診断)` の条文取得と `協会けんぽ 生活習慣病予防健診ハブ` の本文取得を経由して、**法令上の根拠 / 実務上の運用基準 / GRILL で確認すべき論点** の 3 部構成のノートを生成します。生クエリは「成人病予防健診」(旧称) でも構いません — 自動で正式名称にリライトされます。
+
+### Step 2: ① ヒアリング前準備
+
+フェーズタブ「**① ヒアリング前準備**」を選択。ops-grill SKILL の Phase B-pre が起動し、**2 段階で進行**します:
+
+- **Stage 1**: あなた自身に 3〜5 問の質問を投げて、ブラインドスポットを可視化
+- **Stage 2**: 7 カテゴリ (業務スコープ / 関係者と役割 / ステップとフロー / I/O / 例外・属人化 / 独自ルール / 改善余地) の質問スクリプト + 未解明な前提リストを生成
+
+**サンプルプロンプト**:
+
+```
+来週、人事課の健康管理担当の課長に「生活習慣病予防健診」業務のヒアリングをします。
+準備を手伝ってください。
+```
+
+**期待される応答**:
+
+- まず Stage 1 として、こちらに 1 問ずつ尋ねてくる。代表的な軸:
+  - 「この業務について、現時点で何を知っていますか？ どこまでが事実で、どこからが仮説ですか？」
+  - 「ヒアリング対象 (◯◯課長) が最も言語化したくない論点は何だと予想しますか？」
+  - 「もし整理結果が活用されないとしたら、原因は何だと思いますか？」
+- 3〜5 問の応答が終わると Stage 2 に移行し、カテゴリ別質問スクリプトを生成
+
+📚 リサーチ済みのとき、応答中に **「労働安全衛生規則 第44条」「協会けんぽ 生活習慣病予防健診」「節目健診 (40/45/50…歳)」「特定保健指導」「産業医面談」** などの専門用語が自然に登場し、ヒアリングの精度が一段階上がります。
+
+### Step 3: ② ヒアリング中の伴走
+
+ヒアリング当日、その場の状況を LLM に共有すると、**次に聞くべき質問を 1〜3 個 + 注意フラグ** で返してきます。
+
+**サンプルプロンプト**:
+
+```
+今ヒアリング中です。ここまでで分かったこと：
+
+- 当社は協会けんぽ加入。生活習慣病予防健診の補助を案内している
+- 受診率は約 68%。35歳以上の社員は強制的に受診案内
+- 結果フォローは「異常あり」者のみ。産業医面談を月 1 回開催
+- 節目健診 (40/45/50/55/60/65/70歳) の存在は知っているが、対象年齢者への個別案内はしていない
+
+次に何を確認すべきでしょうか？
+```
+
+**期待される応答**:
+
+- 次に聞くべき質問 1〜3 個 (例: 「節目健診を案内していないのは意図的な選択か、運用漏れか？」「『強制的に受診案内』の根拠規程は何か？」)
+- 注意フラグ (例: 「『強制的に受診案内』は業務 (目的) ですか、作業 (手続き) ですか？」)
+
+### Step 4: ③ ヒアリング後の整理
+
+ヒアリング後、メモを渡すと **業務分掌 (10 セクション構造) + Mermaid フロー図** にまとめてくれます。
+
+**サンプルプロンプト**:
+
+```
+ヒアリングが終わりました。以下のメモから業務文書を作成してください：
+
+- 業務の目的: 法定義務 (安衛則第44条) の遵守 + 生活習慣病の早期発見による医療コスト・欠勤の予防
+- 担当部署: 人事課 健康管理担当 (1名)
+- 主要工程:
+  1. 4月: 健診機関と契約更新、対象者リスト確定
+  2. 5月～6月: 一般健診案内、受診予約管理
+  3. 7月: 結果回収、産業医面談対象者の抽出
+  4. 8月: 産業医面談実施、要医療判定者には受診勧奨
+- 関係者: 健診機関、産業医、社員、社員の上司
+- 例外: 出張中・産休中の社員は別途実施日設定
+- 課題: 節目健診の個別案内ができていない (35歳社員にもフルバージョン一般健診を案内)
+```
+
+**期待される応答**:
+
+- 10 セクション構造のドキュメント (業務名 / 目的 / 担当 / 関係者 / インプット / 工程 / アウトプット / 例外・属人化 / 改善余地 / フロー図)
+- 末尾に Mermaid 形式の業務フロー図 (` ```mermaid ` ブロック)
+
+情報不足な箇所があれば、空欄で出力せず追加質問で grill してきます。
+
+### Step 5: 成果物のダウンロード
+
+各フェーズの右上の「**📥 Markdown**」で最新の応答を `.md` ファイルとしてダウンロードできます。
+
+Mermaid フロー図は:
+- アプリ UI 上では SVG として自動描画
+- ダウンロードした `.md` でも GitHub / VSCode / Obsidian などで自動描画
+
+---
+
+## その他の機能
+
+### リサーチの再実行と履歴
+
+📚 ボタンから「**上書き実行**」すると、旧版を自動的にアーカイブして新版を保存します。モーダル下部の「**履歴 (N 件)**」セクションから:
+
+| 操作 | 結果 |
+|---|---|
+| **内容** | 旧版の本文をその場で展開表示 |
+| **🔄 この版に戻す** | current ⇄ history を綺麗に swap (旧版が現行に戻り、現行が履歴へ) |
+| **🗑️** | 履歴から完全削除 (取り消し不可) |
+
+復元後はチャットに同じ質問を投げると、応答の専門用語が「戻した版の内容」に従って変化することが確認できます。
+
+### 過去セッションのアーカイブ
+
+各フェーズで「**+ 新規セッション**」をクリックすると現在の会話をアーカイブし、白紙から話し直せます。アーカイブ済みセッションは右側のセレクタから読み取り専用で閲覧 / 削除可能。
+
+### 信頼 URL レジストリ
+
+法令・実務リサーチが使う「信頼 URL リスト」は `app/lib/trusted-urls.ts` に集約 (現状 11 件、健診・36協定・産業医・労災・雇用保険・副業・就業規則・ストレスチェック・ハラスメント 等をカバー)。新テーマを追加する手順とリンク切れ検知については、当該ファイルの冒頭コメントを参照。
+
+```sh
+npm run check:urls   # 全 URL を HTTP 200 で確認
+```
+
+LLM (gemma) は fetch_page に渡す URL を平気で捏造する性質があるため、システムプロンプトでホワイトリストを明示し、サーバ側でも信頼ホスト外を実行前に拒否する二段ガード構成。
+
+---
+
+## アーキテクチャ概観
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Next.js (app router)                                  │
+│  ├─ app/page.tsx        UI (チャット + フェーズタブ + 📚) │
+│  ├─ app/components/     DomainResearchModal             │
+│  └─ app/api/                                            │
+│     ├─ chat/                  llama-server proxy (SSE)  │
+│     ├─ projects/[slug]/                                 │
+│     │  ├─ [phase]/            会話の永続化              │
+│     │  └─ domain-knowledge/   ノート CRUD + 履歴        │
+│     └─ research/              Tool calling ループ (SSE) │
+├─────────────────────────────────────────────────────────┤
+│  app/lib/                                              │
+│  ├─ projects.ts           プロジェクト/フェーズ会話 IO  │
+│  ├─ domain-knowledge.ts   ノート + 履歴 IO              │
+│  ├─ research-loop.ts      Tool calling 本体             │
+│  ├─ egov.ts               e-Gov 法令検索 API クライアント│
+│  ├─ fetch-page.ts         任意 URL → 抽出テキスト       │
+│  ├─ trusted-urls.ts       信頼 URL レジストリ + allow-list│
+│  └─ llm.ts                llama-server completion       │
+└─────────────────────────────────────────────────────────┘
+                       ↓
+   ┌───────────────┴────────────────┐
+   ↓                                ↓
+llama-server (gemma)         e-Gov / 厚労省 / 協会けんぽ
+```
+
+データ保存場所 (`analyses/<slug>/`):
+
+| ファイル | 内容 |
+|---|---|
+| `project.json` | プロジェクトメタ |
+| `b-pre.json` / `c.json` / `b-post.json` | 各フェーズの現在の会話 |
+| `b-pre.history.json` 等 | 各フェーズのアーカイブ会話 |
+| `domain_knowledge.json` | リサーチで集めた現行ノート |
+| `domain_knowledge.history.json` | リサーチノートの旧版アーカイブ |
+
+すべてプレーンな JSON で、Git 管理する場合は `analyses/` を ignore するか個別判断 (`.gitignore` ですでに無視設定済み)。
+
+---
+
+## 参考: grill-me 本家
+
+このアプリの土台は Matt Pocock 氏（元 Vercel）が公開している Claude Code 用スキル `grill-me`。
 
 - 本家: <https://github.com/mattpocock/skills/blob/main/skills/productivity/grill-me/SKILL.md>
 - 解説記事: <https://www.aihero.dev/use-the-grill-me-skill-k029d>
 
----
-
-## これは何か
+### grill-me の基本姿勢
 
 **Claude にコードを書かせる前に、設計や計画を質問攻めにしてもらう**ためのスキル。
 
 Claude / Codex などのコーディングエージェントが「ユーザの意図を十分に理解しないまま実装に走ってしまう」失敗パターンへの対策として作られた。`/grill-me` をトリガすると、Claude は次のように振る舞う:
 
-- 計画の各論点を**決定木（decision tree）として扱う**
-- 上流の分岐から順に、**1 度に 1 問ずつ**質問してくる
+- 計画の各論点を**決定木 (decision tree) として扱う**
+- 上流の分岐から順に、**1 度に 1 問ずつ**質問する
 - 各質問に **推奨される回答候補を添えて**提示する
 - 必要に応じて、ユーザの説明だけに頼らず**コードベース自体を調べに行く**
 - 全分岐が解決するまで「容赦なく」インタビューを続ける
 
-つまり、ユーザが「曖昧なまま実装に進む」のを物理的に防ぐためのガードレール。
+### grill-me から ops-grill へ
 
-## 本家 SKILL.md の全文
+このアプリで実装した **ops-grill** は grill-me の規律 (1 度に 1 問、推奨回答付き、決定木の上流から、コードベース優先) をすべて踏襲しながら、対象を「コードの設計」から「バックオフィス業務の言語化」に置き換えたもの。
 
-スキル本体はわずか数行。中身は以下のとおり（YAML フロントマター + 短い指示）:
+ops-grill の固有の規律:
 
-```yaml
----
-name: grill-me
-description: Interview the user relentlessly about a plan or design until reaching shared understanding, resolving each branch of the decision tree. Use when user wants to stress-test a plan, get grilled on their design, or mentions "grill me".
----
-```
+- **「業務」と「作業」を分離する** (目的のない手順は削除候補)
+- 3 フェーズ (B-pre / C / B-post) でヒアリング前 → 中 → 後をカバー
+- B-pre は必ず 2 段階 (Stage 1: ユーザを grill → Stage 2: 質問スクリプト生成)
+- B-post の出力は 10 セクション構造 + Mermaid フロー図で固定
 
-**Key Instructions**
+詳細は `.claude/skills/ops-grill/SKILL.md`。
 
-- "Interview the user relentlessly about every aspect of this plan until we reach a shared understanding"
-- Walk through the complete decision tree, addressing dependencies sequentially
-- Present one question at a time
-- Offer recommended answers alongside each query
-- When applicable, investigate the codebase rather than relying solely on user explanations
+### 派生: grill-with-docs
 
-ポイントは **"walk down each branch of the design tree"** という言い回し。これによって Claude は「1 個のプロンプト」ではなく「複数の決定の連なり」として要件を扱うようになる。
+同じく Matt Pocock 氏が公開している進化版。質問攻めに加え、決定内容を `CONTEXT.md` や ADR (Architecture Decision Records) にインラインで書き出すところまでやる。アーキテクチャレベルの大きな意思決定向け。
 
-## どんな時に使うか
-
-- 新機能の設計を着手前にストレステストしたい
-- 自分の頭の中の仕様を**言語化させて穴を見つけたい**
-- アーキテクチャ選択の前に、未決の論点を洗い出したい
-- Claude に「先走って実装するな」と毎回言うのが面倒な時
-
-## インストール
-
-Claude Code は `~/.claude/skills/<name>/SKILL.md` を自動で読み込むので、配置するだけで有効化される:
-
-```bash
-mkdir -p ~/.claude/skills/grill-me
-curl -o ~/.claude/skills/grill-me/SKILL.md \
-  https://raw.githubusercontent.com/mattpocock/skills/main/skills/productivity/grill-me/SKILL.md
-```
-
-## 使い方
-
-会話中に以下のいずれかで発火する:
-
-- 「`/grill-me`」と明示的に呼ぶ
-- 「grill me on this plan」など自然文でトリガフレーズを含める
-- 「この設計を詰めたい / ストレステストしたい」といった文脈
-
-発火後は Claude が 1 問ずつ質問してくるので、淡々と答えていく。全分岐が解決すると、合意済みの内容のサマリを出してくれる。
-
-## 派生: `grill-with-docs`
-
-同じく Matt Pocock 氏が公開している進化版。**質問攻めに加えて、決定内容を `CONTEXT.md` や ADR（Architecture Decision Records）にインラインで書き出す**ところまでやる。
-
-- 既存のドメインモデルと用語の整合を取る
-- 「なぜその選択をしたか」を未来の開発者に残せる
-- アーキテクチャレベルの大きな意思決定に向く
-
-`/grill-me` で感触を掴んだら、こちらに進むのが想定された流れ。
-
-## 参考リンク
+### 参考リンク
 
 - 本家リポジトリ: <https://github.com/mattpocock/skills>
 - "My 'Grill Me' Skill Went Viral": <https://www.aihero.dev/my-grill-me-skill-has-gone-viral>
