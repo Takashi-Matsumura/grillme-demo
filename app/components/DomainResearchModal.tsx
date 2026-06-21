@@ -16,6 +16,7 @@ import type {
   DomainKnowledge,
   DomainKnowledgeArchiveMeta,
 } from "@/app/lib/domain-knowledge";
+import type { ModelInfo } from "@/app/lib/llm";
 import type { ResearchEvent } from "@/app/lib/research-loop";
 
 type StreamEvent =
@@ -58,8 +59,17 @@ export function DomainResearchModal({
   const [expanded, setExpanded] = useState<ArchivedDomainKnowledge | null>(null);
   // null = 未実行, number = 経過秒（実行中も完了後も保持）
   const [elapsed, setElapsed] = useState<number | null>(null);
+  const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
 
   const logRef = useRef<HTMLDivElement>(null);
+
+  // モデル情報をマウント時に取得
+  useEffect(() => {
+    fetch("/api/llm-info")
+      .then((r) => r.json())
+      .then((d) => setModelInfo(d as ModelInfo))
+      .catch(() => {});
+  }, []);
 
   // ステップログが追加されるたびに最下部へスクロール
   useEffect(() => {
@@ -96,10 +106,7 @@ export function DomainResearchModal({
     const totalChars = sourceChars + llmChars;
     // 日本語は概ね 1〜2 文字 / token。中間値 1.5 で推定
     const estimatedTokens = Math.round(totalChars / 1.5);
-    // llama.cpp の典型的なコンテキスト窓 32 768 tokens を基準に %
-    const ctxWindowSize = 32_768;
-    const ctxPct = Math.min(100, Math.round((estimatedTokens / ctxWindowSize) * 100));
-    return { sourceChars, llmChars, toolCalls, iterations, estimatedTokens, ctxPct, ctxWindowSize };
+    return { sourceChars, llmChars, toolCalls, iterations, estimatedTokens };
   }, [events]);
 
   const refreshArchives = useCallback(async () => {
@@ -262,6 +269,12 @@ export function DomainResearchModal({
               <BookOpen className="h-5 w-5 shrink-0" />
               法令・実務リサーチ
             </h2>
+            {modelInfo && (
+              <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">
+                モデル: <span className="font-mono">{modelInfo.modelName}</span>
+                　コンテキスト窓: {fmtNum(modelInfo.nCtx)} tokens
+              </p>
+            )}
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
               e-Gov 法令検索・厚労省・協会けんぽ から一次情報を tool calling
               で集めて、GRILL の system prompt に注入します。
@@ -349,39 +362,43 @@ export function DomainResearchModal({
         )}
 
         {/* コンテキスト使用量 */}
-        {events.length > 0 && (
-          <div className="mt-3 rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-950">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                コンテキスト使用量（推定）
-              </span>
-              <span className="text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
-                ~{fmtNum(stats.estimatedTokens)} / {fmtNum(stats.ctxWindowSize)} tokens ({stats.ctxPct}%)
-                {!running && elapsed !== null && (
-                  <span className="ml-3 text-zinc-400">完了: {fmtTime(elapsed)}</span>
-                )}
-              </span>
+        {events.length > 0 && (() => {
+          const ctxWindowSize = modelInfo?.nCtx ?? 4096;
+          const ctxPct = Math.min(100, Math.round((stats.estimatedTokens / ctxWindowSize) * 100));
+          return (
+            <div className="mt-3 rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-950">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                  コンテキスト使用量（推定）
+                </span>
+                <span className="text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
+                  ~{fmtNum(stats.estimatedTokens)} / {fmtNum(ctxWindowSize)} tokens ({ctxPct}%)
+                  {!running && elapsed !== null && (
+                    <span className="ml-3 text-zinc-400">完了: {fmtTime(elapsed)}</span>
+                  )}
+                </span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    ctxPct >= 80
+                      ? "bg-red-500"
+                      : ctxPct >= 50
+                        ? "bg-amber-400"
+                        : "bg-emerald-500"
+                  }`}
+                  style={{ width: `${ctxPct}%` }}
+                />
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
+                <span>収集ソース {fmtNum(stats.sourceChars)} 字</span>
+                <span>LLM 出力 {fmtNum(stats.llmChars)} 字</span>
+                <span>ツール呼び出し {stats.toolCalls} 回</span>
+                <span>{stats.iterations} 反復</span>
+              </div>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  stats.ctxPct >= 80
-                    ? "bg-red-500"
-                    : stats.ctxPct >= 50
-                      ? "bg-amber-400"
-                      : "bg-emerald-500"
-                }`}
-                style={{ width: `${stats.ctxPct}%` }}
-              />
-            </div>
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
-              <span>収集ソース {fmtNum(stats.sourceChars)} 字</span>
-              <span>LLM 出力 {fmtNum(stats.llmChars)} 字</span>
-              <span>ツール呼び出し {stats.toolCalls} 回</span>
-              <span>{stats.iterations} 反復</span>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* 最終ノート */}
         {answer && (
