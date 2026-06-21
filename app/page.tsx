@@ -632,8 +632,8 @@ export default function Home() {
   );
 
   return (
-    <div className="flex flex-1 flex-col bg-zinc-50 dark:bg-zinc-950">
-      <header className="border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="flex h-full flex-col bg-zinc-50 dark:bg-zinc-950">
+      <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mx-auto flex max-w-3xl flex-col gap-3">
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -777,7 +777,8 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-6">
+      <main className="flex w-full flex-1 overflow-hidden flex-col px-6">
+        <div className="flex flex-1 flex-col overflow-y-auto py-6">
         {isReadOnly && viewingArchive && (
           <div className="mb-4 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200 sm:flex-row sm:items-center sm:justify-between">
             <span>
@@ -852,13 +853,14 @@ export default function Home() {
             <strong>エラー:</strong> {error}
           </div>
         )}
+        </div>
 
         <form
           onSubmit={(e) => {
             e.preventDefault();
             send();
           }}
-          className="mt-6 flex gap-2"
+          className="mx-auto flex w-full max-w-3xl gap-2 border-t border-zinc-200 pt-4 pb-6 dark:border-zinc-800"
         >
           <textarea
             value={input}
