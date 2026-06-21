@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -18,8 +18,6 @@ import type {
 } from "@/app/lib/domain-knowledge";
 import type { ResearchEvent } from "@/app/lib/research-loop";
 
-// /api/research が SSE で配信する ResearchEvent 系に加え、
-// route 側で controller.enqueue している保存系イベントもこのモーダルで扱う。
 type StreamEvent =
   | ResearchEvent
   | { kind: "saved"; projectSlug: string }
@@ -33,6 +31,15 @@ type Props = {
   onClose: () => void;
   onSaved: () => void;
 };
+
+function fmtNum(n: number): string {
+  return n.toLocaleString("ja-JP");
+}
+
+function fmtTime(s: number): string {
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m${s % 60}s`;
+}
 
 export function DomainResearchModal({
   projectSlug,
@@ -49,7 +56,8 @@ export function DomainResearchModal({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [archives, setArchives] = useState<DomainKnowledgeArchiveMeta[]>([]);
   const [expanded, setExpanded] = useState<ArchivedDomainKnowledge | null>(null);
-  const [elapsed, setElapsed] = useState(0);
+  // null = 未実行, number = 経過秒（実行中も完了後も保持）
+  const [elapsed, setElapsed] = useState<number | null>(null);
 
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -60,18 +68,39 @@ export function DomainResearchModal({
     }
   }, [events]);
 
-  // 実行中タイマー
+  // 実行中タイマー — 完了後も elapsed を保持する（リセットは run() 開始時のみ）
   useEffect(() => {
-    if (!running) {
-      setElapsed(0);
-      return;
-    }
+    if (!running) return;
     const start = Date.now();
+    setElapsed(0);
     const id = setInterval(() => {
       setElapsed(Math.floor((Date.now() - start) / 1000));
     }, 1000);
     return () => clearInterval(id);
   }, [running]);
+
+  // コンテキスト使用量をイベントから集計
+  const stats = useMemo(() => {
+    let sourceChars = 0;
+    let llmChars = 0;
+    let toolCalls = 0;
+    let iterations = 0;
+    for (const e of events) {
+      if (e.kind === "fetch_page_result" || e.kind === "egov_article_result") {
+        sourceChars += e.chars;
+      }
+      if (e.kind === "llm_raw") llmChars += e.content.length;
+      if (e.kind === "tool_call") toolCalls++;
+      if (e.kind === "phase") iterations = Math.max(iterations, e.iter);
+    }
+    const totalChars = sourceChars + llmChars;
+    // 日本語は概ね 1〜2 文字 / token。中間値 1.5 で推定
+    const estimatedTokens = Math.round(totalChars / 1.5);
+    // llama.cpp の典型的なコンテキスト窓 32 768 tokens を基準に %
+    const ctxWindowSize = 32_768;
+    const ctxPct = Math.min(100, Math.round((estimatedTokens / ctxWindowSize) * 100));
+    return { sourceChars, llmChars, toolCalls, iterations, estimatedTokens, ctxPct, ctxWindowSize };
+  }, [events]);
 
   const refreshArchives = useCallback(async () => {
     try {
@@ -155,6 +184,7 @@ export function DomainResearchModal({
     setAnswer(null);
     setSaved(false);
     setErrorMsg(null);
+    setElapsed(null);
 
     let res: Response;
     try {
@@ -225,6 +255,7 @@ export function DomainResearchModal({
       }}
     >
       <div className="w-full max-w-3xl rounded-lg bg-white p-6 shadow-xl dark:bg-zinc-900">
+        {/* ヘッダー */}
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
@@ -252,24 +283,29 @@ export function DomainResearchModal({
           </button>
         </div>
 
+        {/* クエリ入力 */}
         <div className="mt-4">
           <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
             クエリ
+            <span className="ml-2 font-normal text-zinc-400 dark:text-zinc-500">
+              （業務名＋キーワードを追記すると絞り込み精度が上がります）
+            </span>
           </label>
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             disabled={running}
-            placeholder="例: 成人病予防健診"
+            placeholder="例: 総務部業務 固定資産管理"
             className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
           />
         </div>
 
+        {/* ボタン行 */}
         <div className="mt-4 flex items-center justify-end gap-2">
-          {running && (
+          {running && elapsed !== null && (
             <span className="text-xs tabular-nums text-zinc-400 dark:text-zinc-500">
-              {elapsed}s
+              {fmtTime(elapsed)}
             </span>
           )}
           <button
@@ -285,13 +321,7 @@ export function DomainResearchModal({
             className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
             {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            {running
-              ? "実行中..."
-              : answer
-                ? "再実行"
-                : existing
-                  ? "上書き実行"
-                  : "実行"}
+            {running ? "実行中..." : answer ? "再実行" : existing ? "上書き実行" : "実行"}
           </button>
         </div>
 
@@ -301,6 +331,7 @@ export function DomainResearchModal({
           </div>
         )}
 
+        {/* ステップログ */}
         {events.length > 0 && (
           <details className="mt-4" open={running && !answer}>
             <summary className="cursor-pointer text-xs font-medium text-zinc-600 dark:text-zinc-400">
@@ -317,11 +348,47 @@ export function DomainResearchModal({
           </details>
         )}
 
+        {/* コンテキスト使用量 */}
+        {events.length > 0 && (
+          <div className="mt-3 rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-950">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                コンテキスト使用量（推定）
+              </span>
+              <span className="text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
+                ~{fmtNum(stats.estimatedTokens)} / {fmtNum(stats.ctxWindowSize)} tokens ({stats.ctxPct}%)
+                {!running && elapsed !== null && (
+                  <span className="ml-3 text-zinc-400">完了: {fmtTime(elapsed)}</span>
+                )}
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  stats.ctxPct >= 80
+                    ? "bg-red-500"
+                    : stats.ctxPct >= 50
+                      ? "bg-amber-400"
+                      : "bg-emerald-500"
+                }`}
+                style={{ width: `${stats.ctxPct}%` }}
+              />
+            </div>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
+              <span>収集ソース {fmtNum(stats.sourceChars)} 字</span>
+              <span>LLM 出力 {fmtNum(stats.llmChars)} 字</span>
+              <span>ツール呼び出し {stats.toolCalls} 回</span>
+              <span>{stats.iterations} 反復</span>
+            </div>
+          </div>
+        )}
+
+        {/* 最終ノート */}
         {answer && (
           <div className="mt-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                {saved ? "最終ノート" : "現在のドメイン知識"}
+                最終ノート
               </span>
               {saved && (
                 <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
@@ -340,6 +407,7 @@ export function DomainResearchModal({
           </div>
         )}
 
+        {/* 履歴 */}
         {archives.length > 0 && (
           <details className="mt-4" open={!running && !answer}>
             <summary className="cursor-pointer text-xs font-medium text-zinc-600 dark:text-zinc-400">
