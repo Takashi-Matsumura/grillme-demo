@@ -9,8 +9,16 @@ export type LlmMessage = {
   content: string;
 };
 
+export type ModelInfo = {
+  modelName: string;
+  nCtx: number;
+};
+
 const LLAMA_BASE_URL = process.env.LLAMA_BASE_URL ?? "http://localhost:8080";
 const LLAMA_MODEL = process.env.LLAMA_MODEL ?? "gemma";
+// LLM 1 呼び出しあたりの上限時間。長コンテキスト時の OS タイムアウト (~12分) を
+// 先に検知して明示的なエラーを返すため、やや短めに設定する。
+const LLAMA_TIMEOUT_MS = Number(process.env.LLAMA_TIMEOUT_MS ?? 240_000); // 4分
 
 export async function chatCompletion(
   messages: LlmMessage[],
@@ -25,6 +33,7 @@ export async function chatCompletion(
       temperature: opts.temperature ?? 0.3,
       stream: false,
     }),
+    signal: AbortSignal.timeout(LLAMA_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -37,4 +46,23 @@ export async function chatCompletion(
     choices?: { message?: { content?: string } }[];
   };
   return data.choices?.[0]?.message?.content ?? "";
+}
+
+export async function getModelInfo(): Promise<ModelInfo> {
+  try {
+    const res = await fetch(`${LLAMA_BASE_URL}/v1/models`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) throw new Error("models endpoint failed");
+    const data = (await res.json()) as {
+      data?: { id?: string; meta?: { n_ctx?: number } }[];
+    };
+    const model = data.data?.[0];
+    return {
+      modelName: model?.id ?? LLAMA_MODEL,
+      nCtx: model?.meta?.n_ctx ?? 4096,
+    };
+  } catch {
+    return { modelName: LLAMA_MODEL, nCtx: 4096 };
+  }
 }
