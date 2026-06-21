@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { BookOpen, Download, Pencil, Trash2, PlusCircle } from "lucide-react";
+import { BookOpen, Download, Pencil, PlusCircle } from "lucide-react";
 import { DomainResearchModal } from "@/app/components/DomainResearchModal";
 import type { DomainKnowledge } from "@/app/lib/domain-knowledge";
 import {
@@ -603,28 +603,6 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
-  async function reset() {
-    if (streaming || !currentSlug || viewingArchive) return;
-    if (
-      messages.length > 0 &&
-      !window.confirm(
-        "このフェーズの現在の会話を消去します。よろしいですか？（履歴は残ります）",
-      )
-    ) {
-      return;
-    }
-    try {
-      await fetch(`/api/projects/${currentSlug}/${currentPhase}`, {
-        method: "DELETE",
-      });
-      setMessages([]);
-      setError(null);
-      await refreshProjects();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
   const hasProject = currentSlug !== null;
   const isReadOnly = viewingArchive !== null;
   const displayedMessages = viewingArchive ? viewingArchive.messages : messages;
@@ -757,7 +735,7 @@ export default function Home() {
                   className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
                   <PlusCircle className="inline-block h-3.5 w-3.5 mr-1 align-[-0.1em]" />
-                  新たにヒアリングを再開する
+                  ヒアリングを再開
                 </button>
                 <button
                   onClick={downloadMarkdown}
@@ -767,14 +745,6 @@ export default function Home() {
                 >
                   <Download className="inline-block h-3.5 w-3.5 mr-1 align-[-0.1em]" />
                   Markdown
-                </button>
-                <button
-                  onClick={reset}
-                  disabled={streaming || isReadOnly || messages.length === 0}
-                  className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                >
-                  <Trash2 className="inline-block h-3.5 w-3.5 mr-1 align-[-0.1em]" />
-                  このフェーズを消去
                 </button>
               </div>
             </div>
