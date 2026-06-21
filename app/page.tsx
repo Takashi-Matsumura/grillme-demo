@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { BookOpen, Download, Pencil, Trash2, PlusCircle } from "lucide-react";
 import { DomainResearchModal } from "@/app/components/DomainResearchModal";
 import type { DomainKnowledge } from "@/app/lib/domain-knowledge";
 import {
@@ -707,7 +708,8 @@ export default function Home() {
                       : "border-zinc-300 text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                   }`}
                 >
-                  📚 {domainKnowledge ? "リサーチ済み" : "法令・実務リサーチ"}
+                  <BookOpen className="inline-block h-3.5 w-3.5 mr-1 align-[-0.1em]" />
+                  {domainKnowledge ? "リサーチ済み" : "法令・実務リサーチ"}
                 </button>
                 <div className="flex items-center gap-1 rounded-md bg-zinc-100 p-1 dark:bg-zinc-800">
                   {PHASES.map((p) => (
@@ -754,7 +756,8 @@ export default function Home() {
                   title="現在のセッションをアーカイブし、新規セッションを開始"
                   className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
-                  + 新規セッション
+                  <PlusCircle className="inline-block h-3.5 w-3.5 mr-1 align-[-0.1em]" />
+                  新規セッション
                 </button>
                 <button
                   onClick={downloadMarkdown}
@@ -762,13 +765,15 @@ export default function Home() {
                   title="このフェーズの最新の応答を Markdown としてダウンロード"
                   className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
-                  📥 Markdown
+                  <Download className="inline-block h-3.5 w-3.5 mr-1 align-[-0.1em]" />
+                  Markdown
                 </button>
                 <button
                   onClick={reset}
                   disabled={streaming || isReadOnly || messages.length === 0}
                   className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
+                  <Trash2 className="inline-block h-3.5 w-3.5 mr-1 align-[-0.1em]" />
                   このフェーズを消去
                 </button>
               </div>
@@ -1039,9 +1044,10 @@ function MessageBubble({
         {canEdit && !editing && (
           <button
             onClick={() => setEditing(true)}
-            className="mt-1 self-start text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+            className="mt-1 inline-flex items-center gap-1 self-start text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
           >
-            ✏️ 編集
+            <Pencil className="h-3 w-3" />
+            編集
           </button>
         )}
       </div>
