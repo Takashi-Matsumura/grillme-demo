@@ -82,7 +82,6 @@ export function DomainResearchModal({
   useEffect(() => {
     if (!running) return;
     const start = Date.now();
-    setElapsed(0);
     const id = setInterval(() => {
       setElapsed(Math.floor((Date.now() - start) / 1000));
     }, 1000);
@@ -186,12 +185,12 @@ export function DomainResearchModal({
 
   async function run() {
     if (!query.trim() || running) return;
+    setElapsed(null);
     setRunning(true);
     setEvents([]);
     setAnswer(null);
     setSaved(false);
     setErrorMsg(null);
-    setElapsed(null);
 
     let res: Response;
     try {
