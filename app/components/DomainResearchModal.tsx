@@ -60,12 +60,9 @@ export function DomainResearchModal({
     }
   }, [events]);
 
-  // 実行中タイマー
+  // 実行中タイマー — リセットは run() 開始時に行う
   useEffect(() => {
-    if (!running) {
-      setElapsed(0);
-      return;
-    }
+    if (!running) return;
     const start = Date.now();
     const id = setInterval(() => {
       setElapsed(Math.floor((Date.now() - start) / 1000));
@@ -150,6 +147,7 @@ export function DomainResearchModal({
 
   async function run() {
     if (!query.trim() || running) return;
+    setElapsed(0);
     setRunning(true);
     setEvents([]);
     setAnswer(null);
