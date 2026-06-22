@@ -1,8 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import {
+  BookOpen,
+  CheckCircle,
+  Loader2,
+  RotateCcw,
+  Trash2,
+  X,
+} from "lucide-react";
 import type {
   ArchivedDomainKnowledge,
   DomainKnowledge,
@@ -40,9 +48,27 @@ export function DomainResearchModal({
   const [saved, setSaved] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [archives, setArchives] = useState<DomainKnowledgeArchiveMeta[]>([]);
-  const [expanded, setExpanded] = useState<ArchivedDomainKnowledge | null>(
-    null,
-  );
+  const [expanded, setExpanded] = useState<ArchivedDomainKnowledge | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  const logRef = useRef<HTMLDivElement>(null);
+
+  // ステップログが追加されるたびに最下部へスクロール
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [events]);
+
+  // 実行中タイマー — リセットは run() 開始時に行う
+  useEffect(() => {
+    if (!running) return;
+    const start = Date.now();
+    const id = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [running]);
 
   const refreshArchives = useCallback(async () => {
     try {
@@ -121,6 +147,7 @@ export function DomainResearchModal({
 
   async function run() {
     if (!query.trim() || running) return;
+    setElapsed(0);
     setRunning(true);
     setEvents([]);
     setAnswer(null);
@@ -198,8 +225,9 @@ export function DomainResearchModal({
       <div className="w-full max-w-3xl rounded-lg bg-white p-6 shadow-xl dark:bg-zinc-900">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-              📚 法令・実務リサーチ
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+              <BookOpen className="h-5 w-5 shrink-0" />
+              法令・実務リサーチ
             </h2>
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
               e-Gov 法令検索・厚労省・協会けんぽ から一次情報を tool calling
@@ -215,10 +243,10 @@ export function DomainResearchModal({
           <button
             onClick={onClose}
             disabled={running}
-            className="rounded-md px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            className="rounded-md p-1 text-zinc-500 hover:bg-zinc-100 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800"
             aria-label="閉じる"
           >
-            ✕
+            <X className="h-4 w-4" />
           </button>
         </div>
 
@@ -236,7 +264,12 @@ export function DomainResearchModal({
           />
         </div>
 
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex items-center justify-end gap-2">
+          {running && (
+            <span className="text-xs tabular-nums text-zinc-400 dark:text-zinc-500">
+              {elapsed}s
+            </span>
+          )}
           <button
             onClick={onClose}
             disabled={running}
@@ -247,8 +280,9 @@ export function DomainResearchModal({
           <button
             onClick={run}
             disabled={running || !query.trim()}
-            className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
+            {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {running
               ? "実行中..."
               : answer
@@ -270,7 +304,10 @@ export function DomainResearchModal({
             <summary className="cursor-pointer text-xs font-medium text-zinc-600 dark:text-zinc-400">
               ステップログ ({events.length} 件)
             </summary>
-            <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-md bg-zinc-50 p-3 text-xs font-mono text-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
+            <div
+              ref={logRef}
+              className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-md bg-zinc-50 p-3 text-xs font-mono text-zinc-700 dark:bg-zinc-950 dark:text-zinc-300"
+            >
               {events.map((e, i) => (
                 <div key={i}>{formatEvent(e)}</div>
               ))}
@@ -285,8 +322,9 @@ export function DomainResearchModal({
                 {saved ? "最終ノート" : "現在のドメイン知識"}
               </span>
               {saved && (
-                <span className="text-xs text-emerald-600 dark:text-emerald-400">
-                  ✅ 保存しました — GRILL の system prompt に注入されます
+                <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle className="h-3.5 w-3.5" />
+                  保存しました — GRILL の system prompt に注入されます
                 </span>
               )}
             </div>
@@ -332,16 +370,18 @@ export function DomainResearchModal({
                         <button
                           onClick={() => restoreArchive(a.id)}
                           disabled={running}
-                          className="rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-40 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900"
+                          className="inline-flex items-center gap-1 rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-40 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900"
                         >
-                          🔄 この版に戻す
+                          <RotateCcw className="h-3 w-3" />
+                          この版に戻す
                         </button>
                         <button
                           onClick={() => removeArchive(a.id)}
                           disabled={running}
-                          className="rounded-md border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-40 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
+                          className="rounded-md border border-red-300 p-1 text-red-700 hover:bg-red-50 disabled:opacity-40 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
+                          aria-label="削除"
                         >
-                          🗑️
+                          <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
                     </div>
