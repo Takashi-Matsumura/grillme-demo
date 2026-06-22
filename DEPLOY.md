@@ -35,6 +35,10 @@ llama.cpp サーバ。Colima の Linux VM には GPU が渡らず、コンテナ
 
   `--host 0.0.0.0` が重要。`127.0.0.1` だと Colima VM からコンテナが届かない。
 
+> **社内プロキシ環境の場合:** インターネットアクセスが HTTP プロキシ必須の
+> 環境では、コンテナから e-Gov API 等へ繋ぐために追加設定が必要です。
+> 先に [`docs/corporate-proxy-setup.md`](./docs/corporate-proxy-setup.md) を参照してください。
+
 ## 手順
 
 ```bash
@@ -106,5 +110,9 @@ docker run --rm -v grillme-demo_analyses:/data -v "$PWD":/backup alpine \
   - ホストの llama-server が `--host 0.0.0.0` で起動しているか確認
   - `docker compose exec app wget -qO- http://host.docker.internal:8080/v1/models` で疎通確認
   - LLM を別マシンで動かす場合は `.env` の `LLAMA_BASE_URL` をそのアドレスに変更
+- **法令リサーチが `fetch failed` で止まる（社内プロキシ環境）**
+  - インターネットアクセスが HTTP プロキシ必須の環境では、コンテナから
+    e-Gov API 等への接続に追加設定が必要。手順は
+    [`docs/corporate-proxy-setup.md`](./docs/corporate-proxy-setup.md) を参照
 - **データが消えた**
   - `docker compose down -v` は volume も削除する。データを残すなら `-v` を付けない
