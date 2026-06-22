@@ -28,6 +28,7 @@ npm run dev    # http://localhost:3000
 |---|---|---|
 | `LLAMA_BASE_URL` | `http://localhost:8080` | llama-server エンドポイント |
 | `LLAMA_MODEL` | `gemma` | モデル名 |
+| `LLAMA_IDLE_TIMEOUT_MS` | `120000` | LLM 無音タイムアウト (ms)。リサーチは長時間化するため余裕を持たせる |
 | `OPS_GRILL_ANALYSES_DIR` | `./analyses/` | プロジェクトデータの保存先 |
 
 開発・運用用コマンド:
@@ -39,6 +40,20 @@ npm test               # vitest unit tests
 npm run check:urls     # 信頼 URL レジストリの生存確認 (HTTP 200)
 npm run test:research  # tool calling ループの単独動作確認
 ```
+
+### 本番デプロイ (Docker / Colima)
+
+社内環境への配備はコンテナ化済み。LLM (llama-server) は Metal GPU を使うためホストに残し、**Next.js アプリのみをコンテナ化**してホストの LLM を `host.docker.internal:8080` 経由で呼ぶ構成。
+
+```sh
+cp .env.example .env
+docker compose up -d --build   # http://localhost:3000
+```
+
+前提・データ永続化・バックアップ・トラブルシュートの詳細は [`DEPLOY.md`](./DEPLOY.md) を参照。
+
+> **社内プロキシ環境**: インターネットアクセスが HTTP プロキシ必須の環境では、コンテナから外部 API へ繋ぐために追加設定が必要。
+> 仕組みの解説は [`docs/corporate-proxy-architecture.md`](./docs/corporate-proxy-architecture.md)、設定手順は [`docs/corporate-proxy-setup.md`](./docs/corporate-proxy-setup.md) を参照。
 
 ---
 
@@ -210,6 +225,8 @@ LLM (gemma) は fetch_page に渡す URL を平気で捏造する性質がある
    ↓                                ↓
 llama-server (gemma)         e-Gov / 厚労省 / 協会けんぽ
 ```
+
+> プロキシ対応の `instrumentation.ts` (プロジェクトルート) はサーバ起動時に undici のグローバル dispatcher を設定する。社内プロキシ環境でのみ作用し、詳細は [`docs/corporate-proxy-architecture.md`](./docs/corporate-proxy-architecture.md)。
 
 データ保存場所 (`analyses/<slug>/`):
 
