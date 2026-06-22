@@ -181,7 +181,10 @@ export type ResearchResult = {
   events: ResearchEvent[];
 };
 
-const MAX_STEPS = 8;
+// LLM 呼び出しの総回数。最後の 1 回はツールを禁止し、
+// 収集済み情報だけで最終ノートを強制生成する「まとめ専用ステップ」に充てる。
+// （= 実質ツール呼び出しは最大 MAX_STEPS - 1 回）
+const MAX_STEPS = 9;
 
 export async function runResearch(
   query: string,
@@ -200,11 +203,28 @@ export async function runResearch(
   for (let i = 0; i < MAX_STEPS; i++) {
     const iter = i + 1;
 
+    // 最終ステップ: これ以上ツールは呼ばせず、収集済み情報だけで
+    // 最終ノートを必ず書かせる。上限到達で成果を捨てないための救済。
+    const forceSynthesis = iter >= MAX_STEPS;
+    if (forceSynthesis) {
+      emit({ kind: "phase", phase: "feedback", iter });
+      convo.push({
+        role: "user",
+        content:
+          "ステップ上限に達しました。これ以上ツールは呼べません。" +
+          "ここまでに収集した情報だけを根拠に、JSON を一切出さず、" +
+          "指定の Markdown 構成（## 法令上の根拠 / ## 実務上の運用基準 / " +
+          "## GRILL で確認すべき論点）で最終ノートを必ず書いてください。" +
+          "確認できなかった項目は「未確認」と明記して構いません。",
+      });
+    }
+
     emit({ kind: "phase", phase: "llm", iter });
     const raw = await chatCompletion(convo);
     emit({ kind: "llm_raw", content: raw });
 
-    const call = parseToolCall(raw);
+    // 最終ステップではツール呼び出しを無視し、必ず最終ノートとして扱う。
+    const call = forceSynthesis ? null : parseToolCall(raw);
     if (!call) {
       emit({ kind: "phase", phase: "final", iter });
       emit({ kind: "final", answer: raw });
@@ -315,6 +335,8 @@ export async function runResearch(
     }
   }
 
+  // 最終ステップ(forceSynthesis)で必ず return するため通常ここには到達しない。
+  // 型安全のための防御的フォールバック。
   emit({
     kind: "error",
     message: `MAX_STEPS=${MAX_STEPS} に達しました。最終回答に到達できませんでした。`,
