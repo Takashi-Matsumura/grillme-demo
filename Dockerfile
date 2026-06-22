@@ -50,6 +50,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 # 静的アセットと public は standalone に含まれないので手動コピー
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+# instrumentation.ts が動的 import する undici は standalone トレースに含まれないため明示コピー
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/undici ./node_modules/undici
 
 # 永続データ用ディレクトリを用意し、volume 初期化時の所有者を nextjs にする
 RUN mkdir -p /data/analyses && chown -R nextjs:nodejs /data
