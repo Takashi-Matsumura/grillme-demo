@@ -1,0 +1,29 @@
+# --- ビルドコンテキストから除外（イメージを軽く・安全に保つ） ---
+
+# 依存とビルド成果物（イメージ内で生成し直す）
+node_modules
+.next
+out
+
+# 実 SME データ。絶対にイメージへ焼かない（compose の volume で別途マウント）
+/analyses
+
+# 環境変数の実ファイル（秘匿情報がイメージに混入するのを防ぐ）
+.env
+.env.*
+!.env.example
+
+# VCS / エディタ / OS
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+
+# ローカル開発・CI 用途
+README*.md
+Dockerfile
+.dockerignore
+docker-compose*.yml
+npm-debug.log*
+coverage

@@ -1,0 +1,46 @@
+# grillme-demo 本番デプロイ（Colima 想定）。
+#
+# 前提: LLM(llama-server) は Mac/Colima ホスト側で Metal GPU を使って
+#       :8080 で起動しておく。コンテナはそれを host.docker.internal で呼ぶ。
+#       llama-server はホストの全インタフェースで待ち受ける必要がある:
+#         llama-server -m <model.gguf> --host 0.0.0.0 --port 8080
+#
+# 使い方:
+#   colima start                # ランタイム起動（未起動なら）
+#   cp .env.example .env         # 必要なら値を編集
+#   docker compose up -d --build
+#   docker compose logs -f app
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: grillme-demo:latest
+    container_name: grillme-demo
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      # コンテナ→ホストの llama-server。LLM をホスト外で動かす場合は .env で上書き。
+      LLAMA_BASE_URL: "${LLAMA_BASE_URL:-http://host.docker.internal:8080}"
+      LLAMA_MODEL: "${LLAMA_MODEL:-gemma}"
+      LLAMA_IDLE_TIMEOUT_MS: "${LLAMA_IDLE_TIMEOUT_MS:-120000}"
+      # 永続データの保存先（下の named volume と一致させる）
+      OPS_GRILL_ANALYSES_DIR: /data/analyses
+    # Linux/Colima のコンテナから「ホスト」を host.docker.internal で解決させる。
+    # host-gateway は Docker/Colima が解決する特別値。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # 実 SME データを named volume に永続化（コンテナ再作成でも残る）
+      - analyses:/data/analyses
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  analyses:
