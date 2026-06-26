@@ -53,6 +53,11 @@ body {
     flex: none !important;
   }
 
+  /* 参照パネルを非表示 */
+  .ops-ref-panel {
+    display: none !important;
+  }
+
   /* 編集・印刷ボタンを非表示 */
   .ops-message-actions {
     display: none !important;

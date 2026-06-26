@@ -204,6 +204,25 @@ function MermaidDiagram({
   );
 }
 
+const refPanelComponents: Components = {
+  ...mdComponents,
+  pre: ({ children }) => {
+    const child = children as
+      | { props?: { className?: string; children?: unknown } }
+      | undefined;
+    const className = child?.props?.className ?? "";
+    if (/language-mermaid/.test(className)) {
+      const code = String(child?.props?.children ?? "").trim();
+      return <MermaidDiagram code={code} streaming={false} />;
+    }
+    return (
+      <pre className="my-2 overflow-x-auto rounded-md bg-zinc-100 p-3 text-xs leading-relaxed dark:bg-zinc-800">
+        {children}
+      </pre>
+    );
+  },
+};
+
 export default function Home() {
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [currentSlug, setCurrentSlug] = useState<string | null>(null);
@@ -221,6 +240,8 @@ export default function Home() {
   const [domainKnowledge, setDomainKnowledge] =
     useState<DomainKnowledge | null>(null);
   const [researchOpen, setResearchOpen] = useState(false);
+  const [bPreOutput, setBPreOutput] = useState<string | null>(null);
+  const [bPrePanelOpen, setBPrePanelOpen] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -283,6 +304,25 @@ export default function Home() {
     }
     refreshDomainKnowledge(currentSlug);
   }, [currentSlug, refreshDomainKnowledge]);
+
+  useEffect(() => {
+    if (currentPhase !== "c" || !currentSlug) {
+      setBPreOutput(null);
+      return;
+    }
+    fetch(`/api/projects/${currentSlug}/b-pre`)
+      .then(async (r) => {
+        if (!r.ok) return;
+        const data = (await r.json()) as {
+          conversation: { messages: Message[] };
+        };
+        const last = data.conversation.messages
+          .filter((m) => m.role === "assistant")
+          .at(-1);
+        setBPreOutput(last?.content ?? null);
+      })
+      .catch(() => setBPreOutput(null));
+  }, [currentPhase, currentSlug]);
 
   // When (slug, phase) changes, load that phase's current conversation and
   // its session history, and exit any open archive view. The three sync
@@ -632,6 +672,7 @@ export default function Home() {
   const canExport = displayedMessages.some(
     (m) => m.role === "assistant" && m.content.trim().length > 0,
   );
+  const showRefPanel = currentPhase === "c" && bPreOutput !== null && bPrePanelOpen;
 
   return (
     <div className="flex h-full flex-col bg-zinc-50 dark:bg-zinc-950">
@@ -749,6 +790,15 @@ export default function Home() {
                     ))}
                   </select>
                 )}
+                {currentPhase === "c" && bPreOutput !== null && (
+                  <button
+                    onClick={() => setBPrePanelOpen((v) => !v)}
+                    disabled={streaming}
+                    className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  >
+                    {bPrePanelOpen ? "準備資料を隠す" : "準備資料を表示"}
+                  </button>
+                )}
                 <button
                   onClick={handleNewSession}
                   disabled={
@@ -775,7 +825,8 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="ops-main-container flex w-full flex-1 overflow-hidden flex-col px-6">
+      <main className={`ops-main-container flex w-full flex-1 overflow-hidden ${showRefPanel ? "flex-row" : "flex-col px-6"}`}>
+        <div className={`flex flex-col overflow-hidden ${showRefPanel ? "flex-1 px-6" : "flex-1"}`}>
         <div className="ops-scroll-container flex flex-1 flex-col overflow-y-auto py-6">
         {isReadOnly && viewingArchive && (
           <div className="mb-4 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200 sm:flex-row sm:items-center sm:justify-between">
@@ -908,6 +959,28 @@ export default function Home() {
             {streaming ? "送信中…" : "送信"}
           </button>
         </form>
+        </div>
+        {showRefPanel && (
+          <aside className="ops-ref-panel w-80 shrink-0 border-l border-zinc-200 bg-white flex flex-col overflow-hidden dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-800">
+              <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                ヒアリング準備資料
+              </span>
+              <button
+                onClick={() => setBPrePanelOpen(false)}
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 text-sm leading-none"
+                aria-label="パネルを閉じる"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-4 text-xs">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={refPanelComponents}>
+                {bPreOutput}
+              </ReactMarkdown>
+            </div>
+          </aside>
+        )}
       </main>
       {researchOpen && currentSlug && (
         <DomainResearchModal
