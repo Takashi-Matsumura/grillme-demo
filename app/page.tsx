@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { BookOpen, Download, Pencil, PlusCircle } from "lucide-react";
+import { BookOpen, Download, Pencil, Printer, PlusCircle } from "lucide-react";
 import { DomainResearchModal } from "@/app/components/DomainResearchModal";
 import type { DomainKnowledge } from "@/app/lib/domain-knowledge";
 import {
@@ -214,6 +215,7 @@ export default function Home() {
   );
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [printingIndex, setPrintingIndex] = useState<number | null>(null);
   const [loadingPhase, setLoadingPhase] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [domainKnowledge, setDomainKnowledge] =
@@ -612,6 +614,18 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
+  function printToPDF(index: number) {
+    const cleanup = () => {
+      setPrintingIndex(null);
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+
+    flushSync(() => setPrintingIndex(index));
+    window.print();
+  }
+
+
   const hasProject = currentSlug !== null;
   const isReadOnly = viewingArchive !== null;
   const displayedMessages = viewingArchive ? viewingArchive.messages : messages;
@@ -810,29 +824,44 @@ export default function Home() {
           </div>
         ) : (
           <div className="flex flex-1 flex-col gap-4">
-            {displayedMessages.map((m, i) => {
-              const isStreaming =
-                !isReadOnly &&
-                streaming &&
-                i === displayedMessages.length - 1;
-              return (
-                <MessageBubble
-                  key={i}
-                  message={m}
-                  streaming={isStreaming}
-                  onEdit={
-                    !isReadOnly && m.role === "assistant" && !isStreaming
-                      ? (content) => handleEditMessage(i, content)
-                      : undefined
-                  }
-                  onEditAndResend={
-                    !isReadOnly && m.role === "user" && !streaming
-                      ? (content) => handleEditAndResend(i, content)
-                      : undefined
-                  }
-                />
+            {(() => {
+              const lastAssistantIdx = displayedMessages.reduce<number | null>(
+                (found, m, i) =>
+                  m.role === "assistant" && m.content.trim().length > 0
+                    ? i
+                    : found,
+                null,
               );
-            })}
+              return displayedMessages.map((m, i) => {
+                const isStreaming =
+                  !isReadOnly &&
+                  streaming &&
+                  i === displayedMessages.length - 1;
+                return (
+                  <MessageBubble
+                    key={i}
+                    message={m}
+                    streaming={isStreaming}
+                    onEdit={
+                      !isReadOnly && m.role === "assistant" && !isStreaming
+                        ? (content) => handleEditMessage(i, content)
+                        : undefined
+                    }
+                    onEditAndResend={
+                      !isReadOnly && m.role === "user" && !streaming
+                        ? (content) => handleEditAndResend(i, content)
+                        : undefined
+                    }
+                    onPrint={
+                      !isReadOnly && !streaming && i === lastAssistantIdx
+                        ? () => printToPDF(i)
+                        : undefined
+                    }
+                    isPrintTarget={i === printingIndex}
+                  />
+                );
+              });
+            })()}
             <div ref={bottomRef} />
           </div>
         )}
@@ -902,11 +931,15 @@ function MessageBubble({
   streaming,
   onEdit,
   onEditAndResend,
+  onPrint,
+  isPrintTarget,
 }: {
   message: Message;
   streaming: boolean;
   onEdit?: (newContent: string) => void;
   onEditAndResend?: (content: string) => void;
+  onPrint?: () => void;
+  isPrintTarget?: boolean;
 }) {
   const isUser = message.role === "user";
   const hasReasoning = !isUser && message.reasoning && message.reasoning.length > 0;
@@ -967,10 +1000,10 @@ function MessageBubble({
   }
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div className={`ops-message flex ${isUser ? "justify-end" : "justify-start"}${isPrintTarget ? " ops-print-target" : ""}`}>
       <div className="flex max-w-[85%] flex-col">
         <div
-          className={`flex flex-col gap-2 rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+          className={`ops-bubble flex flex-col gap-2 rounded-2xl px-4 py-3 text-sm leading-relaxed ${
             isUser
               ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
               : "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-800"
@@ -1044,14 +1077,27 @@ function MessageBubble({
             )
           )}
         </div>
-        {canEdit && !editing && (
-          <button
-            onClick={() => setEditing(true)}
-            className="mt-1 inline-flex items-center gap-1 self-start text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
-          >
-            <Pencil className="h-3 w-3" />
-            編集
-          </button>
+        {(canEdit || onPrint) && !editing && (
+          <div className="mt-1 inline-flex gap-3">
+            {canEdit && (
+              <button
+                onClick={() => setEditing(true)}
+                className="inline-flex items-center gap-1 self-start text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              >
+                <Pencil className="h-3 w-3" />
+                編集
+              </button>
+            )}
+            {onPrint && (
+              <button
+                onClick={onPrint}
+                className="inline-flex items-center gap-1 self-start text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              >
+                <Printer className="h-3 w-3" />
+                印刷・PDF
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
