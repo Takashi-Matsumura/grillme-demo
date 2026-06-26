@@ -165,6 +165,11 @@ function MermaidDiagram({
           setRender({ for: code, svg: result.svg });
         } catch (e) {
           if (cancelled) return;
+          // Mermaid leaves an orphaned error-icon container in the document body
+          // on render failure. Remove any lingering mermaid-* containers.
+          document
+            .querySelectorAll('[id^="dmermaid-"]')
+            .forEach((el) => el.remove());
           setRender({
             for: code,
             error: e instanceof Error ? e.message : String(e),
