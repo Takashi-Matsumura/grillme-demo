@@ -24,3 +24,61 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@media print {
+  /* UI クロムを非表示 */
+  header,
+  form {
+    display: none !important;
+  }
+
+  /* 印刷対象以外のメッセージを非表示 */
+  .ops-message {
+    visibility: hidden;
+    height: 0;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* 印刷対象メッセージのみ表示 */
+  .ops-message.ops-print-target {
+    visibility: visible;
+    height: auto;
+    overflow: visible;
+  }
+
+  .ops-message.ops-print-target * {
+    visibility: visible;
+  }
+
+  /* バブルスタイルをリセットしてフル幅で印刷 */
+  .ops-print-target .ops-bubble {
+    max-width: 100% !important;
+    width: 100% !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    border: none !important;
+    background: white !important;
+    color: black !important;
+    padding: 0 !important;
+  }
+
+  /* Mermaid SVG を適切なサイズに */
+  .ops-print-target svg {
+    max-width: 100%;
+    page-break-inside: avoid;
+  }
+
+  /* 見出し・リストの余白調整 */
+  .ops-print-target h1,
+  .ops-print-target h2,
+  .ops-print-target h3 {
+    page-break-after: avoid;
+  }
+
+  .ops-print-target table {
+    page-break-inside: avoid;
+    width: 100%;
+  }
+}

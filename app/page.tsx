@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { BookOpen, Download, Pencil, PlusCircle } from "lucide-react";
+import { BookOpen, Download, Pencil, Printer, PlusCircle } from "lucide-react";
 import { DomainResearchModal } from "@/app/components/DomainResearchModal";
 import type { DomainKnowledge } from "@/app/lib/domain-knowledge";
 import {
@@ -214,6 +215,7 @@ export default function Home() {
   );
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [printingIndex, setPrintingIndex] = useState<number | null>(null);
   const [loadingPhase, setLoadingPhase] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [domainKnowledge, setDomainKnowledge] =
@@ -612,6 +614,26 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
+  function printToPDF() {
+    const source = viewingArchive ? viewingArchive.messages : messages;
+    const lastAssistantIdx = source.reduce<number | null>(
+      (found, m, i) =>
+        m.role === "assistant" && m.content.trim().length > 0 ? i : found,
+      null,
+    );
+    if (lastAssistantIdx === null) return;
+
+    const cleanup = () => {
+      setPrintingIndex(null);
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+
+    flushSync(() => setPrintingIndex(lastAssistantIdx));
+    window.print();
+  }
+
+
   const hasProject = currentSlug !== null;
   const isReadOnly = viewingArchive !== null;
   const displayedMessages = viewingArchive ? viewingArchive.messages : messages;
@@ -755,6 +777,15 @@ export default function Home() {
                   <Download className="inline-block h-3.5 w-3.5 mr-1 align-[-0.1em]" />
                   Markdown
                 </button>
+                <button
+                  onClick={printToPDF}
+                  disabled={streaming || !canExport}
+                  title="このフェーズの最新の応答を PDF として印刷・保存"
+                  className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  <Printer className="inline-block h-3.5 w-3.5 mr-1 align-[-0.1em]" />
+                  PDF
+                </button>
               </div>
             </div>
           )}
@@ -830,6 +861,7 @@ export default function Home() {
                       ? (content) => handleEditAndResend(i, content)
                       : undefined
                   }
+                  isPrintTarget={i === printingIndex}
                 />
               );
             })}
@@ -902,11 +934,13 @@ function MessageBubble({
   streaming,
   onEdit,
   onEditAndResend,
+  isPrintTarget,
 }: {
   message: Message;
   streaming: boolean;
   onEdit?: (newContent: string) => void;
   onEditAndResend?: (content: string) => void;
+  isPrintTarget?: boolean;
 }) {
   const isUser = message.role === "user";
   const hasReasoning = !isUser && message.reasoning && message.reasoning.length > 0;
@@ -967,10 +1001,10 @@ function MessageBubble({
   }
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div className={`ops-message flex ${isUser ? "justify-end" : "justify-start"}${isPrintTarget ? " ops-print-target" : ""}`}>
       <div className="flex max-w-[85%] flex-col">
         <div
-          className={`flex flex-col gap-2 rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+          className={`ops-bubble flex flex-col gap-2 rounded-2xl px-4 py-3 text-sm leading-relaxed ${
             isUser
               ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
               : "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-800"
