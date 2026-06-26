@@ -307,6 +307,7 @@ export default function Home() {
 
   useEffect(() => {
     if (currentPhase !== "c" || !currentSlug) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setBPreOutput(null);
       return;
     }
