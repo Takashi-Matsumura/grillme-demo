@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { BookOpen, Download, Pencil, Printer, PlusCircle } from "lucide-react";
+import { BookOpen, ChevronLeft, ChevronRight, Download, Pencil, Printer, PlusCircle } from "lucide-react";
 import { DomainResearchModal } from "@/app/components/DomainResearchModal";
 import type { DomainKnowledge } from "@/app/lib/domain-knowledge";
 import {
@@ -684,7 +684,7 @@ export default function Home() {
   const canExport = displayedMessages.some(
     (m) => m.role === "assistant" && m.content.trim().length > 0,
   );
-  const showRefPanel = currentPhase === "c" && bPreOutput !== null && bPrePanelOpen;
+  const showRefPanel = currentPhase === "c" && bPreOutput !== null;
 
   return (
     <div className="flex h-full flex-col bg-zinc-50 dark:bg-zinc-950">
@@ -741,6 +741,23 @@ export default function Home() {
               >
                 削除
               </button>
+              <div className="ml-1 w-px h-5 bg-zinc-200 dark:bg-zinc-700" />
+              <button
+                onClick={handleNewSession}
+                disabled={streaming || isReadOnly || !hasProject || messages.length === 0}
+                title="現在のセッションをアーカイブし、新規セッションを開始"
+                className="rounded-md border border-zinc-300 p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              >
+                <PlusCircle className="h-4 w-4" />
+              </button>
+              <button
+                onClick={downloadMarkdown}
+                disabled={streaming || !canExport}
+                title="最新の応答を Markdown としてダウンロード"
+                className="rounded-md border border-zinc-300 p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              >
+                <Download className="h-4 w-4" />
+              </button>
             </div>
           </div>
           {hasProject && (
@@ -765,73 +782,46 @@ export default function Home() {
                   <BookOpen className="inline-block h-3.5 w-3.5 mr-1 align-[-0.1em]" />
                   {domainKnowledge ? "リサーチ済み" : "法令・実務リサーチ"}
                 </button>
-                <div className="flex items-center gap-1 rounded-md bg-zinc-100 p-1 dark:bg-zinc-800">
-                  {PHASES.map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setCurrentPhase(p)}
-                    disabled={streaming || p === currentPhase}
-                    className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                      p === currentPhase
-                        ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-zinc-100"
-                        : "text-zinc-600 hover:text-zinc-900 disabled:opacity-40 dark:text-zinc-400 dark:hover:text-zinc-100"
-                    }`}
-                  >
-                    {PHASE_LABELS[p]}
-                  </button>
-                ))}
+                <div className="flex items-center rounded-md bg-zinc-100 p-1 dark:bg-zinc-800">
+                  {PHASES.map((p, idx) => (
+                    <Fragment key={p}>
+                      {idx > 0 && (
+                        <ChevronRight className="h-3 w-3 shrink-0 text-zinc-400 dark:text-zinc-500" />
+                      )}
+                      <button
+                        onClick={() => setCurrentPhase(p)}
+                        disabled={streaming || p === currentPhase}
+                        className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                          p === currentPhase
+                            ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-900 dark:text-zinc-100"
+                            : "text-zinc-600 hover:text-zinc-900 disabled:opacity-40 dark:text-zinc-400 dark:hover:text-zinc-100"
+                        }`}
+                      >
+                        {PHASE_LABELS[p]}
+                      </button>
+                    </Fragment>
+                  ))}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {history.length > 0 && (
-                  <select
-                    value={viewingArchive?.id ?? ""}
-                    onChange={(e) => {
-                      if (e.target.value) handleViewArchive(e.target.value);
-                      else handleBackToCurrent();
-                    }}
-                    disabled={streaming}
-                    title="このフェーズのアーカイブ済みセッション"
-                    className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-                  >
-                    <option value="">現在のセッション</option>
-                    {history.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        履歴 {formatLocalTime(s.updatedAt)}（{s.messageCount}件）
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {currentPhase === "c" && bPreOutput !== null && (
-                  <button
-                    onClick={() => setBPrePanelOpen((v) => !v)}
-                    disabled={streaming}
-                    className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  >
-                    {bPrePanelOpen ? "準備資料を隠す" : "準備資料を表示"}
-                  </button>
-                )}
-                <button
-                  onClick={handleNewSession}
-                  disabled={
-                    streaming || isReadOnly || messages.length === 0
-                  }
-                  title="現在のセッションをアーカイブし、新規セッションを開始"
-                  className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              {history.length > 0 && (
+                <select
+                  value={viewingArchive?.id ?? ""}
+                  onChange={(e) => {
+                    if (e.target.value) handleViewArchive(e.target.value);
+                    else handleBackToCurrent();
+                  }}
+                  disabled={streaming}
+                  title="このステップのアーカイブ済みセッション"
+                  className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
                 >
-                  <PlusCircle className="inline-block h-3.5 w-3.5 mr-1 align-[-0.1em]" />
-                  ヒアリングを再開
-                </button>
-                <button
-                  onClick={downloadMarkdown}
-                  disabled={streaming || !canExport}
-                  title="このフェーズの最新の応答を Markdown としてダウンロード"
-                  className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                >
-                  <Download className="inline-block h-3.5 w-3.5 mr-1 align-[-0.1em]" />
-                  Markdown
-                </button>
-              </div>
+                  <option value="">現在のセッション</option>
+                  {history.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      履歴 {formatLocalTime(s.updatedAt)}（{s.messageCount}件）
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           )}
         </div>
@@ -973,24 +963,28 @@ export default function Home() {
         </form>
         </div>
         {showRefPanel && (
-          <aside className="ops-ref-panel w-80 shrink-0 border-l border-zinc-200 bg-white flex flex-col overflow-hidden dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-800">
-              <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-                ヒアリング準備資料
-              </span>
-              <button
-                onClick={() => setBPrePanelOpen(false)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 text-sm leading-none"
-                aria-label="パネルを閉じる"
-              >
-                ×
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-4 py-4 text-xs">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={refPanelComponents}>
-                {fixMarkdownDelimiters(bPreOutput)}
-              </ReactMarkdown>
-            </div>
+          <aside className="ops-ref-panel shrink-0 border-l border-zinc-200 flex flex-row overflow-hidden dark:border-zinc-800">
+            <button
+              onClick={() => setBPrePanelOpen((v) => !v)}
+              title={bPrePanelOpen ? "準備資料を折りたたむ" : "準備資料を展開する"}
+              className="w-5 shrink-0 flex items-center justify-center bg-zinc-50 hover:bg-zinc-100 border-r border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700 dark:hover:bg-zinc-700"
+            >
+              <ChevronLeft className={`h-3 w-3 text-zinc-400 transition-transform duration-150 ${bPrePanelOpen ? "" : "rotate-180"}`} />
+            </button>
+            {bPrePanelOpen && (
+              <div className="w-80 flex flex-col overflow-hidden bg-white dark:bg-zinc-900">
+                <div className="flex items-center px-4 py-3 border-b border-zinc-200 dark:border-zinc-800">
+                  <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                    ヒアリング準備資料
+                  </span>
+                </div>
+                <div className="flex-1 overflow-y-auto px-4 py-4 text-xs">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={refPanelComponents}>
+                    {fixMarkdownDelimiters(bPreOutput)}
+                  </ReactMarkdown>
+                </div>
+              </div>
+            )}
           </aside>
         )}
       </main>
