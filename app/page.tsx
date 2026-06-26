@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { flushSync } from "react-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { BookOpen, ChevronLeft, ChevronRight, Download, Pencil, Printer, PlusCircle } from "lucide-react";
+import { BookOpen, ChevronLeft, ChevronRight, Download, Pencil, Plus, PlusCircle, Printer, Trash2 } from "lucide-react";
 import { DomainResearchModal } from "@/app/components/DomainResearchModal";
 import type { DomainKnowledge } from "@/app/lib/domain-knowledge";
 import {
@@ -39,9 +39,9 @@ function formatLocalTime(iso: string): string {
 }
 
 const PHASE_LABELS: Record<Phase, string> = {
-  "b-pre": "① ヒアリング前準備",
-  c: "② ヒアリング中の伴走",
-  "b-post": "③ ヒアリング後の整理",
+  "b-pre": "② 準備",
+  c: "③ 伴走",
+  "b-post": "④ 文書化",
 };
 
 const PHASE_HINTS: Record<Phase, string> = {
@@ -721,25 +721,26 @@ export default function Home() {
               <button
                 onClick={handleCreateProject}
                 disabled={streaming}
-                className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                title="新規プロジェクトを作成"
+                className="rounded-md border border-zinc-300 p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
               >
-                + 新規
+                <Plus className="h-4 w-4" />
               </button>
               <button
                 onClick={handleRenameProject}
                 disabled={streaming || !hasProject}
                 title="プロジェクト名を変更"
-                className="rounded-md border border-zinc-300 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="rounded-md border border-zinc-300 p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
               >
-                リネーム
+                <Pencil className="h-4 w-4" />
               </button>
               <button
                 onClick={handleDeleteProject}
                 disabled={streaming || !hasProject}
-                title="プロジェクト削除"
-                className="rounded-md border border-zinc-300 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                title="プロジェクトを削除"
+                className="rounded-md border border-zinc-300 p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-red-400"
               >
-                削除
+                <Trash2 className="h-4 w-4" />
               </button>
               <div className="ml-1 w-px h-5 bg-zinc-200 dark:bg-zinc-700" />
               <button
@@ -763,31 +764,29 @@ export default function Home() {
           {hasProject && (
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setResearchOpen(true)}
-                  disabled={streaming}
-                  title={
-                    domainKnowledge
-                      ? `「${domainKnowledge.query}」を ${formatLocalTime(
-                          domainKnowledge.generatedAt,
-                        )} にリサーチ済み（GRILL に注入されます）`
-                      : "ヒアリング前に法令・実務情報を集めて GRILL に注入する"
-                  }
-                  className={`rounded-md border px-2 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40 ${
-                    domainKnowledge
-                      ? "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 dark:hover:bg-emerald-900"
-                      : "border-zinc-300 text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  }`}
-                >
-                  <BookOpen className="inline-block h-3.5 w-3.5 mr-1 align-[-0.1em]" />
-                  {domainKnowledge ? "リサーチ済み" : "法令・実務リサーチ"}
-                </button>
                 <div className="flex items-center rounded-md bg-zinc-100 p-1 dark:bg-zinc-800">
-                  {PHASES.map((p, idx) => (
+                  <button
+                    onClick={() => setResearchOpen(true)}
+                    disabled={streaming}
+                    title={
+                      domainKnowledge
+                        ? `「${domainKnowledge.query}」を ${formatLocalTime(
+                            domainKnowledge.generatedAt,
+                          )} にリサーチ済み（GRILL に注入されます）`
+                        : "法令・実務情報をリサーチして GRILL に注入する"
+                    }
+                    className={`rounded px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                      domainKnowledge
+                        ? "text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950"
+                        : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                    }`}
+                  >
+                    <BookOpen className="inline-block h-3 w-3 mr-1 align-[-0.1em]" />
+                    ① リサーチ
+                  </button>
+                  {PHASES.map((p) => (
                     <Fragment key={p}>
-                      {idx > 0 && (
-                        <ChevronRight className="h-3 w-3 shrink-0 text-zinc-400 dark:text-zinc-500" />
-                      )}
+                      <ChevronRight className="h-3 w-3 shrink-0 text-zinc-400 dark:text-zinc-500" />
                       <button
                         onClick={() => setCurrentPhase(p)}
                         disabled={streaming || p === currentPhase}
