@@ -775,8 +775,8 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="flex w-full flex-1 overflow-hidden flex-col px-6">
-        <div className="flex flex-1 flex-col overflow-y-auto py-6">
+      <main className="ops-main-container flex w-full flex-1 overflow-hidden flex-col px-6">
+        <div className="ops-scroll-container flex flex-1 flex-col overflow-y-auto py-6">
         {isReadOnly && viewingArchive && (
           <div className="mb-4 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200 sm:flex-row sm:items-center sm:justify-between">
             <span>
@@ -1078,7 +1078,7 @@ function MessageBubble({
           )}
         </div>
         {(canEdit || onPrint) && !editing && (
-          <div className="mt-1 inline-flex gap-3">
+          <div className="ops-message-actions mt-1 inline-flex gap-3">
             {canEdit && (
               <button
                 onClick={() => setEditing(true)}
