@@ -32,6 +32,32 @@ body {
     display: none !important;
   }
 
+  /* スクロールコンテナの高さ・overflow 制限を解除してコンテンツ全体を印刷 */
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .ops-main-container {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    flex: none !important;
+  }
+
+  .ops-scroll-container {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    flex: none !important;
+  }
+
+  /* 編集・印刷ボタンを非表示 */
+  .ops-message-actions {
+    display: none !important;
+  }
+
   /* 印刷対象以外のメッセージを非表示 */
   .ops-message {
     visibility: hidden;
