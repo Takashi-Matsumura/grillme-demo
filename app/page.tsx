@@ -399,15 +399,18 @@ export default function Home() {
     }
   }
 
-  async function send() {
-    const trimmed = input.trim();
+  async function send(opts?: { editIndex?: number; editContent?: string }) {
+    const trimmed = opts?.editContent ?? input.trim();
     if (!trimmed || streaming || !currentSlug || viewingArchive) return;
     setError(null);
 
+    const baseMessages =
+      opts?.editIndex !== undefined ? messages.slice(0, opts.editIndex) : messages;
+
     const userMsg: Message = { role: "user", content: trimmed };
-    const next = [...messages, userMsg];
+    const next = [...baseMessages, userMsg];
     setMessages([...next, { role: "assistant", content: "" }]);
-    setInput("");
+    if (opts?.editContent === undefined) setInput("");
     setStreaming(true);
 
     let finalMessages: Message[] = next;
@@ -508,6 +511,11 @@ export default function Home() {
     setMessages(updated);
     await persistMessages(currentSlug, currentPhase, updated);
     await refreshProjects();
+  }
+
+  function handleEditAndResend(index: number, newContent: string) {
+    if (!currentSlug || streaming || viewingArchive) return;
+    send({ editIndex: index, editContent: newContent });
   }
 
   async function handleNewSession() {
@@ -816,6 +824,11 @@ export default function Home() {
                       ? (content) => handleEditMessage(i, content)
                       : undefined
                   }
+                  onEditAndResend={
+                    !isReadOnly && m.role === "user" && !streaming
+                      ? (content) => handleEditAndResend(i, content)
+                      : undefined
+                  }
                 />
               );
             })}
@@ -887,15 +900,19 @@ function MessageBubble({
   message,
   streaming,
   onEdit,
+  onEditAndResend,
 }: {
   message: Message;
   streaming: boolean;
   onEdit?: (newContent: string) => void;
+  onEditAndResend?: (content: string) => void;
 }) {
   const isUser = message.role === "user";
   const hasReasoning = !isUser && message.reasoning && message.reasoning.length > 0;
   const hasContent = message.content.length > 0;
-  const canEdit = !!onEdit && !isUser && !streaming && hasContent;
+  const canEdit = isUser
+    ? !!onEditAndResend && !streaming && hasContent
+    : !!onEdit && !streaming && hasContent;
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
@@ -935,8 +952,11 @@ function MessageBubble({
   );
 
   function saveEdit() {
-    if (!onEdit) return;
-    onEdit(draft);
+    if (isUser) {
+      onEditAndResend?.(draft);
+    } else {
+      onEdit?.(draft);
+    }
     setEditing(false);
   }
 
@@ -974,20 +994,32 @@ function MessageBubble({
                 onChange={(e) => setDraft(e.target.value)}
                 rows={Math.min(24, Math.max(4, draft.split("\n").length + 1))}
                 autoFocus
-                className="w-full resize-y rounded-md border border-zinc-300 bg-white p-2 font-mono text-xs text-zinc-900 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                className={`w-full resize-y rounded-md border p-2 font-mono text-xs focus:outline-none ${
+                  isUser
+                    ? "border-zinc-600 bg-zinc-800 text-white focus:border-zinc-400"
+                    : "border-zinc-300 bg-white text-zinc-900 focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                }`}
               />
               <div className="flex justify-end gap-2">
                 <button
                   onClick={cancelEdit}
-                  className="rounded-md border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  className={`rounded-md border px-3 py-1 text-xs font-medium ${
+                    isUser
+                      ? "border-zinc-600 text-zinc-300 hover:bg-zinc-800"
+                      : "border-zinc-300 text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
                 >
                   キャンセル
                 </button>
                 <button
                   onClick={saveEdit}
-                  className="rounded-md bg-zinc-900 px-3 py-1 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                  className={`rounded-md px-3 py-1 text-xs font-medium ${
+                    isUser
+                      ? "bg-zinc-100 text-zinc-900 hover:bg-white"
+                      : "bg-zinc-900 text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                  }`}
                 >
-                  保存
+                  {isUser ? "再送信" : "保存"}
                 </button>
               </div>
             </div>
