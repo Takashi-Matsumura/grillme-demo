@@ -16,6 +16,17 @@ import {
   type SessionMeta,
 } from "@/app/lib/types";
 
+function fixMarkdownDelimiters(text: string): string {
+  // CommonMark "right-flanking delimiter" detection fails when ** or * is
+  // immediately preceded by Unicode closing punctuation (e.g. ）」』】) and
+  // followed by a non-punctuation character. This causes LLM-generated bold
+  // like **Stage 2（準備）**の to render as plain text.
+  // Fix: insert ZWSP (U+200B, invisible, zero-width) between the closing
+  // punctuation and the delimiter so it is no longer classified as preceded
+  // by punctuation, enabling right-flanking detection.
+  return text.replace(/(\p{Pe}|\p{Pf}|[。、！？…])(\*+|_+)/gu, "$1​$2");
+}
+
 function formatLocalTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -977,7 +988,7 @@ export default function Home() {
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-4 text-xs">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={refPanelComponents}>
-                {bPreOutput}
+                {fixMarkdownDelimiters(bPreOutput)}
               </ReactMarkdown>
             </div>
           </aside>
@@ -1137,7 +1148,7 @@ function MessageBubble({
             ) : (
               <div className="break-words">
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-                  {message.content}
+                  {fixMarkdownDelimiters(message.content)}
                 </ReactMarkdown>
               </div>
             )
