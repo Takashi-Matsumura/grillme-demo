@@ -614,22 +614,14 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
-  function printToPDF() {
-    const source = viewingArchive ? viewingArchive.messages : messages;
-    const lastAssistantIdx = source.reduce<number | null>(
-      (found, m, i) =>
-        m.role === "assistant" && m.content.trim().length > 0 ? i : found,
-      null,
-    );
-    if (lastAssistantIdx === null) return;
-
+  function printToPDF(index: number) {
     const cleanup = () => {
       setPrintingIndex(null);
       window.removeEventListener("afterprint", cleanup);
     };
     window.addEventListener("afterprint", cleanup);
 
-    flushSync(() => setPrintingIndex(lastAssistantIdx));
+    flushSync(() => setPrintingIndex(index));
     window.print();
   }
 
@@ -777,15 +769,6 @@ export default function Home() {
                   <Download className="inline-block h-3.5 w-3.5 mr-1 align-[-0.1em]" />
                   Markdown
                 </button>
-                <button
-                  onClick={printToPDF}
-                  disabled={streaming || !canExport}
-                  title="このフェーズの最新の応答を PDF として印刷・保存"
-                  className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                >
-                  <Printer className="inline-block h-3.5 w-3.5 mr-1 align-[-0.1em]" />
-                  PDF
-                </button>
               </div>
             </div>
           )}
@@ -841,30 +824,44 @@ export default function Home() {
           </div>
         ) : (
           <div className="flex flex-1 flex-col gap-4">
-            {displayedMessages.map((m, i) => {
-              const isStreaming =
-                !isReadOnly &&
-                streaming &&
-                i === displayedMessages.length - 1;
-              return (
-                <MessageBubble
-                  key={i}
-                  message={m}
-                  streaming={isStreaming}
-                  onEdit={
-                    !isReadOnly && m.role === "assistant" && !isStreaming
-                      ? (content) => handleEditMessage(i, content)
-                      : undefined
-                  }
-                  onEditAndResend={
-                    !isReadOnly && m.role === "user" && !streaming
-                      ? (content) => handleEditAndResend(i, content)
-                      : undefined
-                  }
-                  isPrintTarget={i === printingIndex}
-                />
+            {(() => {
+              const lastAssistantIdx = displayedMessages.reduce<number | null>(
+                (found, m, i) =>
+                  m.role === "assistant" && m.content.trim().length > 0
+                    ? i
+                    : found,
+                null,
               );
-            })}
+              return displayedMessages.map((m, i) => {
+                const isStreaming =
+                  !isReadOnly &&
+                  streaming &&
+                  i === displayedMessages.length - 1;
+                return (
+                  <MessageBubble
+                    key={i}
+                    message={m}
+                    streaming={isStreaming}
+                    onEdit={
+                      !isReadOnly && m.role === "assistant" && !isStreaming
+                        ? (content) => handleEditMessage(i, content)
+                        : undefined
+                    }
+                    onEditAndResend={
+                      !isReadOnly && m.role === "user" && !streaming
+                        ? (content) => handleEditAndResend(i, content)
+                        : undefined
+                    }
+                    onPrint={
+                      !isReadOnly && !streaming && i === lastAssistantIdx
+                        ? () => printToPDF(i)
+                        : undefined
+                    }
+                    isPrintTarget={i === printingIndex}
+                  />
+                );
+              });
+            })()}
             <div ref={bottomRef} />
           </div>
         )}
@@ -934,12 +931,14 @@ function MessageBubble({
   streaming,
   onEdit,
   onEditAndResend,
+  onPrint,
   isPrintTarget,
 }: {
   message: Message;
   streaming: boolean;
   onEdit?: (newContent: string) => void;
   onEditAndResend?: (content: string) => void;
+  onPrint?: () => void;
   isPrintTarget?: boolean;
 }) {
   const isUser = message.role === "user";
@@ -1078,14 +1077,27 @@ function MessageBubble({
             )
           )}
         </div>
-        {canEdit && !editing && (
-          <button
-            onClick={() => setEditing(true)}
-            className="mt-1 inline-flex items-center gap-1 self-start text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
-          >
-            <Pencil className="h-3 w-3" />
-            編集
-          </button>
+        {(canEdit || onPrint) && !editing && (
+          <div className="mt-1 inline-flex gap-3">
+            {canEdit && (
+              <button
+                onClick={() => setEditing(true)}
+                className="inline-flex items-center gap-1 self-start text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              >
+                <Pencil className="h-3 w-3" />
+                編集
+              </button>
+            )}
+            {onPrint && (
+              <button
+                onClick={onPrint}
+                className="inline-flex items-center gap-1 self-start text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              >
+                <Printer className="h-3 w-3" />
+                印刷・PDF
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
