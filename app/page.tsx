@@ -434,8 +434,7 @@ export default function Home() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let assistantContent = "";
-      let assistantReasoning = "";
+      const acc = { content: "", reasoning: "" };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -453,23 +452,25 @@ export default function Home() {
             const delta = json.choices?.[0]?.delta ?? {};
             let changed = false;
             if (typeof delta.content === "string" && delta.content.length > 0) {
-              assistantContent += delta.content;
+              acc.content += delta.content;
               changed = true;
             }
             if (
               typeof delta.reasoning_content === "string" &&
               delta.reasoning_content.length > 0
             ) {
-              assistantReasoning += delta.reasoning_content;
+              acc.reasoning += delta.reasoning_content;
               changed = true;
             }
             if (changed) {
+              const snapshotContent = acc.content;
+              const snapshotReasoning = acc.reasoning;
               setMessages((msgs) => {
                 const copy = [...msgs];
                 copy[copy.length - 1] = {
                   role: "assistant",
-                  content: assistantContent,
-                  reasoning: assistantReasoning || undefined,
+                  content: snapshotContent,
+                  reasoning: snapshotReasoning || undefined,
                 };
                 return copy;
               });
@@ -484,8 +485,8 @@ export default function Home() {
         ...next,
         {
           role: "assistant",
-          content: assistantContent,
-          ...(assistantReasoning ? { reasoning: assistantReasoning } : {}),
+          content: acc.content,
+          ...(acc.reasoning ? { reasoning: acc.reasoning } : {}),
         },
       ];
 
