@@ -18,24 +18,18 @@ import {
 
 function fixMarkdownDelimiters(text: string): string {
   // CommonMark flanking-delimiter rules fail in several Japanese punctuation contexts.
-  // All fixes insert U+200B (ZWSP, invisible) to adjust how the parser classifies
-  // the surrounding characters without changing the visible output.
+  // All fixes insert U+200B (ZWSP, invisible, Cf category — not whitespace or punctuation
+  // per CommonMark) so the parser reclassifies the surrounding context.
   return text
-    // Fix 1: Pe/Pf closing bracket before ** — enables right-flanking (closing) detection.
-    // e.g. ）**の → ）​**の  (** preceded by Cf, not punct → right-flanking via 2a)
-    // Negative lookahead: skip when ** is followed by an opening bracket/quote — in that
-    // position ** is an OPENER and CommonMark 2b already handles it correctly; inserting
-    // U+200B would break the opener instead.
-    .replace(/(\p{Pe}|\p{Pf})(\*+|_+)(?!\p{Ps}|\p{Pi})/gu, "$1​$2")
-    // Fix 2: Japanese sentence punctuation before ** — same right-flanking fix.
-    // e.g. 。**の → 。​**の
-    // Same negative lookahead: 。**「 is left alone (opener works via 2b).
-    .replace(/([。、！？…])(\*+|_+)(?!\p{Ps}|\p{Pi})/gu, "$1​$2")
-    // Fix 3: Letter/number before ** followed by opening bracket — enables left-flanking
-    // (opening) detection. Without this, e.g. た**「 is NOT left-flanking:
-    // 2a fails (followed by punct 「); 2b fails (preceded by letter, not ws/punct).
-    // Insert U+200B after ** so it is followed by Cf → 2a applies → left-flanking ✓.
-    .replace(/(\p{L}|\p{N})(\*+|_+)(\p{Ps}|\p{Pi})/gu, "$1$2​$3");
+    // Fix 1: Pe/Pf/sentence-punct before ** → U+200B before **
+    // Makes ** right-flanking (can close bold) even when preceded by e.g. ）, 」, 。, 、
+    // e.g. ）**の → ）​**の  (** now preceded by Cf, not punct → right-flanking via 2a ✓)
+    .replace(/(\p{Pe}|\p{Pf}|[。、！？…])(\*+|_+)/gu, "$1​$2")
+    // Fix 2: ** before opening bracket/quote → U+200B after **
+    // Makes ** left-flanking (can open bold) even when followed by e.g. 「, （, 【
+    // e.g. 、**「 → 、​**​「  (** now followed by Cf, not punct → left-flanking via 2a ✓)
+    // Combined with Fix 1 this also handles ）**「 → ）​**​「 (both flanking ✓)
+    .replace(/(\*+|_+)(\p{Ps}|\p{Pi})/gu, "$1​$2");
 }
 
 function formatLocalTime(iso: string): string {
