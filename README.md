@@ -12,7 +12,7 @@ Claude Code 用の `grill-me` スキルを発展させた ops-grill は、中小
 
 ### 前提
 
-- Node.js 20+, npm
+- Node.js 24+, npm
 - `llama-server` (llama.cpp) を `http://localhost:8080` で起動 (推奨: `gemma-3-12b-it` 系)
 
 ### セットアップ
