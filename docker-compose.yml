@@ -36,7 +36,9 @@ services:
       # 実 SME データを named volume に永続化（コンテナ再作成でも残る）
       - analyses:/data/analyses
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      # BusyBox wget は no_proxy を解釈しないため、コンテナに注入されたプロキシ環境変数
+      # (http_proxy 等、~/.docker/config.json 経由) を明示的に無効化してローカル疎通を確認する。
+      test: ["CMD-SHELL", "http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY= wget -qO- http://127.0.0.1:3000/"]
       interval: 30s
       timeout: 5s
       retries: 3
