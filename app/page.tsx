@@ -163,18 +163,20 @@ function MermaidDiagram({
     loadMermaid()
       .then(async (mermaid) => {
         if (cancelled) return;
+        const id = `mermaid-${Math.random().toString(36).slice(2)}`;
         try {
-          const id = `mermaid-${Math.random().toString(36).slice(2)}`;
           const result = await mermaid.render(id, code);
           if (cancelled) return;
           setRender({ for: code, svg: result.svg });
         } catch (e) {
           if (cancelled) return;
           // Mermaid leaves an orphaned error-icon container in the document body
-          // on render failure. Remove any lingering mermaid-* containers.
-          document
-            .querySelectorAll('[id^="dmermaid-"]')
-            .forEach((el) => el.remove());
+          // on render failure. Remove only this instance's own container —
+          // a global "dmermaid-*" selector would also delete the in-progress
+          // host element of any other MermaidDiagram rendering concurrently,
+          // crashing that render with "Cannot read properties of null
+          // (reading 'firstChild')" even when its own diagram is valid.
+          document.getElementById(`d${id}`)?.remove();
           setRender({
             for: code,
             error: e instanceof Error ? e.message : String(e),
